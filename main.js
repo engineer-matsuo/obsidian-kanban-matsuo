@@ -37,7 +37,8 @@ var DEFAULT_PLUGIN_SETTINGS = {
   showDates: true,
   showCheckboxes: true,
   autoSaveDelay: 500,
-  language: "auto"
+  language: "auto",
+  boardTemplatePath: ""
 };
 var DEFAULT_BOARD_SETTINGS = {
   laneWidth: 272,
@@ -243,7 +244,34 @@ var en = {
   "modal.save": "Save",
   "modal.cancel": "Cancel",
   "modal.delete-lane-title": "Delete lane",
-  "modal.delete": "Delete"
+  "modal.delete": "Delete",
+  // Filter
+  "filter.by-tag": "Filter by tag",
+  "filter.by-date": "Filter by date",
+  "filter.all": "All",
+  "filter.overdue": "Overdue",
+  "filter.today": "Today",
+  "filter.this-week": "This week",
+  "filter.no-date": "No date",
+  "filter.clear": "Clear filter",
+  // Card extra
+  "card.create-note": "Create linked note",
+  "card.open-note": "Open linked note",
+  // Commands extra
+  "command.add-card": "Add card to lane",
+  "command.move-card": "Move card",
+  // Lane drag
+  "lane.drag-handle": "Drag to reorder lane",
+  // Modal extra
+  "modal.select-lane": "Select lane",
+  "modal.select-card": "Select card",
+  "modal.select-target-lane": "Select target lane",
+  "modal.card-title": "Card title",
+  // Template
+  "command.create-from-template": "Create board from template",
+  "settings.templates": "Templates",
+  "settings.board-template": "Board template",
+  "settings.board-template-desc": "Template file path for new boards."
 };
 
 // src/lang/ja.ts
@@ -303,7 +331,34 @@ var ja = {
   "modal.save": "\u4FDD\u5B58",
   "modal.cancel": "\u30AD\u30E3\u30F3\u30BB\u30EB",
   "modal.delete-lane-title": "\u30EC\u30FC\u30F3\u306E\u524A\u9664",
-  "modal.delete": "\u524A\u9664"
+  "modal.delete": "\u524A\u9664",
+  // Filter
+  "filter.by-tag": "\u30BF\u30B0\u3067\u7D5E\u308A\u8FBC\u307F",
+  "filter.by-date": "\u65E5\u4ED8\u3067\u7D5E\u308A\u8FBC\u307F",
+  "filter.all": "\u3059\u3079\u3066",
+  "filter.overdue": "\u671F\u9650\u5207\u308C",
+  "filter.today": "\u4ECA\u65E5",
+  "filter.this-week": "\u4ECA\u9031",
+  "filter.no-date": "\u65E5\u4ED8\u306A\u3057",
+  "filter.clear": "\u30D5\u30A3\u30EB\u30BF\u3092\u89E3\u9664",
+  // Card extra
+  "card.create-note": "\u30EA\u30F3\u30AF\u5148\u30CE\u30FC\u30C8\u3092\u4F5C\u6210",
+  "card.open-note": "\u30EA\u30F3\u30AF\u5148\u30CE\u30FC\u30C8\u3092\u958B\u304F",
+  // Commands extra
+  "command.add-card": "\u30EC\u30FC\u30F3\u306B\u30AB\u30FC\u30C9\u3092\u8FFD\u52A0",
+  "command.move-card": "\u30AB\u30FC\u30C9\u3092\u79FB\u52D5",
+  // Lane drag
+  "lane.drag-handle": "\u30C9\u30E9\u30C3\u30B0\u3057\u3066\u30EC\u30FC\u30F3\u3092\u4E26\u3073\u66FF\u3048",
+  // Modal extra
+  "modal.select-lane": "\u30EC\u30FC\u30F3\u3092\u9078\u629E",
+  "modal.select-card": "\u30AB\u30FC\u30C9\u3092\u9078\u629E",
+  "modal.select-target-lane": "\u79FB\u52D5\u5148\u30EC\u30FC\u30F3\u3092\u9078\u629E",
+  "modal.card-title": "\u30AB\u30FC\u30C9\u306E\u30BF\u30A4\u30C8\u30EB",
+  // Template
+  "command.create-from-template": "\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u304B\u3089\u30DC\u30FC\u30C9\u3092\u4F5C\u6210",
+  "settings.templates": "\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8",
+  "settings.board-template": "\u30DC\u30FC\u30C9\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8",
+  "settings.board-template-desc": "\u65B0\u3057\u3044\u30DC\u30FC\u30C9\u4F5C\u6210\u6642\u306E\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u30D5\u30A1\u30A4\u30EB\u30D1\u30B9\u3002"
 };
 
 // src/lang/index.ts
@@ -343,10 +398,20 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.file = null;
     this.saveTimeout = null;
     this.boardEl = null;
-    // Drag state
+    // Drag state (cards)
     this.draggedItem = null;
     this.draggedFromLane = null;
     this.dragPlaceholder = null;
+    // Drag state (lanes)
+    this.draggedLane = null;
+    // Touch drag state
+    this.touchStartY = 0;
+    this.touchStartX = 0;
+    // Filter state
+    this.filterMode = "none";
+    this.filterValue = "";
+    // External change detection
+    this.ignoreNextModify = false;
     this.plugin = plugin;
   }
   getViewType() {
@@ -361,6 +426,17 @@ var KanbanView = class extends import_obsidian.ItemView {
   async onOpen() {
     this.contentEl.empty();
     this.contentEl.addClass("kanban-matsuo-container");
+    this.registerEvent(
+      this.app.vault.on("modify", async (file) => {
+        if (this.ignoreNextModify) {
+          this.ignoreNextModify = false;
+          return;
+        }
+        if (file instanceof import_obsidian.TFile && this.file && file.path === this.file.path) {
+          await this.loadFile(file);
+        }
+      })
+    );
   }
   async onClose() {
     if (this.saveTimeout !== null) {
@@ -374,6 +450,25 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.board = parseMarkdown(content);
     this.render();
   }
+  /** Public accessor for commands in main.ts */
+  getBoard() {
+    return this.board;
+  }
+  /** Public accessor for commands in main.ts */
+  getFile() {
+    return this.file;
+  }
+  /** Save a board state and re-render (for use by commands in main.ts) */
+  async saveBoard(board) {
+    this.board = board;
+    if (!this.file) return;
+    this.ignoreNextModify = true;
+    await this.app.vault.process(this.file, () => boardToMarkdown(board));
+  }
+  /** Re-render the view (for use by commands in main.ts) */
+  refresh() {
+    this.render();
+  }
   scheduleSave() {
     if (this.saveTimeout !== null) {
       window.clearTimeout(this.saveTimeout);
@@ -384,6 +479,7 @@ var KanbanView = class extends import_obsidian.ItemView {
   }
   async save() {
     if (!this.board || !this.file) return;
+    this.ignoreNextModify = true;
     const board = this.board;
     await this.app.vault.process(this.file, () => boardToMarkdown(board));
   }
@@ -391,9 +487,14 @@ var KanbanView = class extends import_obsidian.ItemView {
     if (!this.board) return;
     this.contentEl.empty();
     this.contentEl.addClass("kanban-matsuo-container");
+    this.contentEl.setAttribute("role", "application");
+    this.contentEl.setAttribute("aria-label", t("board.kanban-board"));
     const toolbar = this.contentEl.createDiv({ cls: "kanban-matsuo-toolbar" });
     this.renderToolbar(toolbar);
-    this.boardEl = this.contentEl.createDiv({ cls: "kanban-matsuo-board" });
+    this.boardEl = this.contentEl.createDiv({
+      cls: "kanban-matsuo-board",
+      attr: { "aria-live": "polite" }
+    });
     for (const lane of this.board.lanes) {
       this.renderLane(this.boardEl, lane);
     }
@@ -409,26 +510,146 @@ var KanbanView = class extends import_obsidian.ItemView {
       }
     });
     searchInput.addEventListener("input", () => {
+      this.filterMode = "none";
+      this.filterValue = "";
       this.filterCards(searchInput.value);
     });
+    const tagFilterBtn = container.createEl("button", {
+      cls: "kanban-matsuo-filter-btn clickable-icon",
+      attr: { "aria-label": t("filter.by-tag"), "data-tooltip-position": "top" }
+    });
+    (0, import_obsidian.setIcon)(tagFilterBtn, "tag");
+    tagFilterBtn.addEventListener("click", (e) => this.showTagFilterMenu(e));
+    const dateFilterBtn = container.createEl("button", {
+      cls: "kanban-matsuo-filter-btn clickable-icon",
+      attr: { "aria-label": t("filter.by-date"), "data-tooltip-position": "top" }
+    });
+    (0, import_obsidian.setIcon)(dateFilterBtn, "calendar");
+    dateFilterBtn.addEventListener("click", (e) => this.showDateFilterMenu(e));
+    if (this.filterMode !== "none") {
+      const clearBtn = container.createEl("button", {
+        cls: "kanban-matsuo-filter-clear clickable-icon",
+        attr: { "aria-label": t("filter.clear"), "data-tooltip-position": "top" }
+      });
+      (0, import_obsidian.setIcon)(clearBtn, "x");
+      clearBtn.addEventListener("click", () => {
+        this.filterMode = "none";
+        this.filterValue = "";
+        this.render();
+      });
+    }
+  }
+  showTagFilterMenu(e) {
+    if (!this.board) return;
+    const menu = new import_obsidian.Menu();
+    const allTags = /* @__PURE__ */ new Set();
+    for (const lane of this.board.lanes) {
+      for (const item of lane.items) {
+        if (!item.archived) item.tags.forEach((tag) => allTags.add(tag));
+      }
+    }
+    menu.addItem((mi) => mi.setTitle(t("filter.all")).setIcon("list").onClick(() => {
+      this.filterMode = "none";
+      this.filterValue = "";
+      this.render();
+    }));
+    for (const tag of allTags) {
+      menu.addItem((mi) => mi.setTitle(`#${tag}`).setIcon("tag").onClick(() => {
+        this.filterMode = "tag";
+        this.filterValue = tag;
+        this.render();
+      }));
+    }
+    this.showMenuAtEvent(menu, e);
+  }
+  showDateFilterMenu(e) {
+    const menu = new import_obsidian.Menu();
+    const items = [
+      [t("filter.all"), "list", ""],
+      [t("filter.overdue"), "alert-circle", "overdue"],
+      [t("filter.today"), "calendar", "today"],
+      [t("filter.this-week"), "calendar-range", "week"],
+      [t("filter.no-date"), "calendar-off", "none"]
+    ];
+    for (const [title, icon, val] of items) {
+      menu.addItem((mi) => mi.setTitle(title).setIcon(icon).onClick(() => {
+        this.filterMode = val ? "date" : "none";
+        this.filterValue = val;
+        this.render();
+      }));
+    }
+    this.showMenuAtEvent(menu, e);
+  }
+  isItemVisible(item) {
+    if (item.archived) return false;
+    if (this.filterMode === "none") return true;
+    if (this.filterMode === "tag") return item.tags.includes(this.filterValue);
+    if (this.filterMode === "date") {
+      const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      switch (this.filterValue) {
+        case "overdue":
+          return item.dueDate !== null && item.dueDate < today;
+        case "today":
+          return item.dueDate === today;
+        case "week": {
+          if (!item.dueDate) return false;
+          const d = new Date(today);
+          d.setDate(d.getDate() + 7);
+          return item.dueDate >= today && item.dueDate <= d.toISOString().slice(0, 10);
+        }
+        case "none":
+          return item.dueDate === null;
+      }
+    }
+    return true;
   }
   renderLane(container, lane) {
     const laneEl = container.createDiv({
       cls: "kanban-matsuo-lane",
-      attr: {
-        "data-lane-id": lane.id,
-        role: "region",
-        "aria-label": `${lane.title}`
-      }
+      attr: { "data-lane-id": lane.id, role: "region", "aria-label": lane.title }
     });
     laneEl.style.setProperty("--lane-width", `${this.board.settings.laneWidth}px`);
     const headerEl = laneEl.createDiv({ cls: "kanban-matsuo-lane-header" });
+    const dragHandle = headerEl.createEl("button", {
+      cls: "kanban-matsuo-lane-drag-handle clickable-icon",
+      attr: { "aria-label": t("lane.drag-handle"), draggable: "true", "data-tooltip-position": "top" }
+    });
+    (0, import_obsidian.setIcon)(dragHandle, "grip-vertical");
+    dragHandle.addEventListener("dragstart", (e) => {
+      this.draggedLane = lane;
+      laneEl.addClass("kanban-matsuo-lane-dragging");
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", lane.id);
+      }
+    });
+    dragHandle.addEventListener("dragend", () => {
+      laneEl.removeClass("kanban-matsuo-lane-dragging");
+      this.draggedLane = null;
+    });
+    laneEl.addEventListener("dragover", (e) => {
+      if (this.draggedLane && this.draggedLane.id !== lane.id) {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      }
+    });
+    laneEl.addEventListener("drop", (e) => {
+      if (this.draggedLane && this.board) {
+        e.preventDefault();
+        const fromIdx = this.board.lanes.indexOf(this.draggedLane);
+        const toIdx = this.board.lanes.indexOf(lane);
+        if (fromIdx >= 0 && toIdx >= 0) {
+          this.board.lanes.splice(fromIdx, 1);
+          this.board.lanes.splice(toIdx, 0, this.draggedLane);
+          this.render();
+          this.scheduleSave();
+        }
+      }
+    });
+    this.setupTouchDrag(dragHandle, laneEl, lane);
     const collapseBtn = headerEl.createEl("button", {
       cls: "kanban-matsuo-collapse-btn clickable-icon",
-      attr: {
-        "aria-label": lane.collapsed ? t("lane.expand") : t("lane.collapse"),
-        "data-tooltip-position": "top"
-      }
+      attr: { "aria-label": lane.collapsed ? t("lane.expand") : t("lane.collapse"), "data-tooltip-position": "top" }
     });
     (0, import_obsidian.setIcon)(collapseBtn, lane.collapsed ? "chevron-right" : "chevron-down");
     collapseBtn.addEventListener("click", () => {
@@ -439,10 +660,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     const titleEl = headerEl.createEl("h3", {
       cls: "kanban-matsuo-lane-title",
       text: lane.title,
-      attr: {
-        "aria-label": t("lane.edit-title"),
-        contenteditable: "true"
-      }
+      attr: { "aria-label": t("lane.edit-title"), contenteditable: "true" }
     });
     titleEl.addEventListener("blur", () => {
       var _a;
@@ -464,66 +682,45 @@ var KanbanView = class extends import_obsidian.ItemView {
     });
     if (lane.wipLimit > 0) {
       const activeCount = lane.items.filter((i) => !i.archived).length;
-      if (activeCount >= lane.wipLimit) {
-        countEl.addClass("kanban-matsuo-wip-exceeded");
-      }
+      if (activeCount >= lane.wipLimit) countEl.addClass("kanban-matsuo-wip-exceeded");
       countEl.setText(`${activeCount}/${lane.wipLimit}`);
     }
     const menuBtn = headerEl.createEl("button", {
       cls: "kanban-matsuo-lane-menu clickable-icon",
-      attr: {
-        "aria-label": t("lane.options"),
-        "data-tooltip-position": "top"
-      }
+      attr: { "aria-label": t("lane.options"), "data-tooltip-position": "top" }
     });
     (0, import_obsidian.setIcon)(menuBtn, "more-vertical");
-    menuBtn.addEventListener("click", (e) => {
-      this.showLaneMenu(e, lane);
-    });
+    menuBtn.addEventListener("click", (e) => this.showLaneMenu(e, lane));
     if (!lane.collapsed) {
       const listEl = laneEl.createDiv({
         cls: "kanban-matsuo-card-list",
-        attr: {
-          "data-lane-id": lane.id,
-          role: "list"
-        }
+        attr: { "data-lane-id": lane.id, role: "list" }
       });
       listEl.addEventListener("dragover", (e) => {
+        if (!this.draggedItem) return;
         e.preventDefault();
-        if (e.dataTransfer) {
-          e.dataTransfer.dropEffect = "move";
-        }
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
         this.handleDragOver(e, listEl);
       });
-      listEl.addEventListener("dragleave", () => {
-        this.removePlaceholder();
-      });
+      listEl.addEventListener("dragleave", () => this.removePlaceholder());
       listEl.addEventListener("drop", (e) => {
+        if (!this.draggedItem) return;
         e.preventDefault();
         this.handleDrop(lane, listEl);
       });
       for (const item of lane.items) {
-        if (!item.archived) {
-          this.renderCard(listEl, item, lane);
-        }
+        if (this.isItemVisible(item)) this.renderCard(listEl, item, lane);
       }
       this.renderAddCardInput(laneEl, lane);
     }
   }
   renderCard(container, item, lane) {
+    var _a;
     const cardEl = container.createDiv({
       cls: "kanban-matsuo-card",
-      attr: {
-        "data-item-id": item.id,
-        draggable: "true",
-        role: "listitem",
-        tabindex: "0",
-        "aria-label": item.title
-      }
+      attr: { "data-item-id": item.id, draggable: "true", role: "listitem", tabindex: "0", "aria-label": item.title }
     });
-    if (item.checked) {
-      cardEl.addClass("kanban-matsuo-card-checked");
-    }
+    if (item.checked) cardEl.addClass("kanban-matsuo-card-checked");
     cardEl.addEventListener("dragstart", (e) => {
       this.draggedItem = item;
       this.draggedFromLane = lane;
@@ -539,15 +736,14 @@ var KanbanView = class extends import_obsidian.ItemView {
       this.draggedFromLane = null;
       this.removePlaceholder();
     });
+    this.setupTouchDragCard(cardEl, item, lane);
     cardEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         this.startInlineEdit(cardEl, item);
-      } else if (e.key === "Delete" || e.key === "Backspace") {
-        if (e.shiftKey) {
-          e.preventDefault();
-          this.deleteItem(item, lane);
-        }
+      } else if ((e.key === "Delete" || e.key === "Backspace") && e.shiftKey) {
+        e.preventDefault();
+        this.deleteItem(item, lane);
       }
     });
     cardEl.addEventListener("contextmenu", (e) => {
@@ -557,10 +753,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     if (this.board.settings.showCheckboxes) {
       const checkboxEl = cardEl.createEl("input", {
         cls: "kanban-matsuo-card-checkbox task-list-item-checkbox",
-        attr: {
-          type: "checkbox",
-          "aria-label": item.checked ? t("card.mark-as-incomplete", { title: item.title }) : t("card.mark-as-complete", { title: item.title })
-        }
+        attr: { type: "checkbox", "aria-label": item.checked ? t("card.mark-as-incomplete", { title: item.title }) : t("card.mark-as-complete", { title: item.title }) }
       });
       checkboxEl.checked = item.checked;
       checkboxEl.addEventListener("change", () => {
@@ -571,47 +764,136 @@ var KanbanView = class extends import_obsidian.ItemView {
     }
     const bodyEl = cardEl.createDiv({ cls: "kanban-matsuo-card-body" });
     const titleEl = bodyEl.createDiv({ cls: "kanban-matsuo-card-title" });
-    const displayTitle = item.title.replace(/#[^\s#]+/g, "").replace(/@\{\d{4}-\d{2}-\d{2}\}/g, "").trim();
-    titleEl.setText(displayTitle || item.title);
-    titleEl.addEventListener("dblclick", () => {
-      this.startInlineEdit(cardEl, item);
+    const displayTitle = item.title.replace(/#[^\s#]+/g, "").replace(/@\{\d{4}-\d{2}-\d{2}\}/g, "").trim() || item.title;
+    import_obsidian.MarkdownRenderer.render(this.app, displayTitle, titleEl, ((_a = this.file) == null ? void 0 : _a.path) || "", this);
+    titleEl.querySelectorAll("a.internal-link").forEach((linkEl) => {
+      linkEl.addEventListener("mouseover", (e) => {
+        var _a2;
+        const href = linkEl.getAttribute("href");
+        if (href) {
+          this.app.workspace.trigger("hover-link", {
+            event: e,
+            source: KANBAN_VIEW_TYPE,
+            hoverParent: this,
+            targetEl: linkEl,
+            linktext: href,
+            sourcePath: ((_a2 = this.file) == null ? void 0 : _a2.path) || ""
+          });
+        }
+      });
     });
+    titleEl.addEventListener("dblclick", () => this.startInlineEdit(cardEl, item));
     if (this.board.settings.showTags && item.tags.length > 0) {
       const tagsEl = bodyEl.createDiv({ cls: "kanban-matsuo-card-tags" });
       for (const tag of item.tags) {
-        tagsEl.createSpan({
-          cls: "kanban-matsuo-tag",
-          text: `#${tag}`
+        const tagSpan = tagsEl.createSpan({ cls: "kanban-matsuo-tag", text: `#${tag}` });
+        tagSpan.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.filterMode = "tag";
+          this.filterValue = tag;
+          this.render();
         });
       }
     }
     if (this.board.settings.showDates && item.dueDate) {
       const dateEl = bodyEl.createDiv({ cls: "kanban-matsuo-card-date" });
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      if (item.dueDate < today) {
-        dateEl.addClass("kanban-matsuo-date-overdue");
-      } else if (item.dueDate === today) {
-        dateEl.addClass("kanban-matsuo-date-today");
-      }
+      if (item.dueDate < today) dateEl.addClass("kanban-matsuo-date-overdue");
+      else if (item.dueDate === today) dateEl.addClass("kanban-matsuo-date-today");
       dateEl.setText(`\u{1F4C5} ${item.dueDate}`);
     }
+  }
+  /** Setup touch drag for lane reorder (mobile) */
+  setupTouchDrag(handle, el, lane) {
+    let longPressTimer = null;
+    let isDragging = false;
+    handle.addEventListener("touchstart", (e) => {
+      const touch = e.touches[0];
+      this.touchStartX = touch.clientX;
+      this.touchStartY = touch.clientY;
+      longPressTimer = window.setTimeout(() => {
+        isDragging = true;
+        el.addClass("kanban-matsuo-touch-dragging");
+        this.draggedLane = lane;
+      }, 300);
+    }, { passive: true });
+    handle.addEventListener("touchmove", (e) => {
+      if (!isDragging) {
+        const touch = e.touches[0];
+        if (Math.abs(touch.clientX - this.touchStartX) > 10 || Math.abs(touch.clientY - this.touchStartY) > 10) {
+          if (longPressTimer !== null) {
+            window.clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+        }
+        return;
+      }
+      e.preventDefault();
+    });
+    handle.addEventListener("touchend", () => {
+      if (longPressTimer !== null) {
+        window.clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+      if (isDragging) {
+        isDragging = false;
+        el.removeClass("kanban-matsuo-touch-dragging");
+        this.draggedLane = null;
+      }
+    }, { passive: true });
+  }
+  /** Setup touch drag for card (mobile) */
+  setupTouchDragCard(cardEl, item, lane) {
+    let longPressTimer = null;
+    let isDragging = false;
+    cardEl.addEventListener("touchstart", (e) => {
+      const touch = e.touches[0];
+      this.touchStartX = touch.clientX;
+      this.touchStartY = touch.clientY;
+      longPressTimer = window.setTimeout(() => {
+        isDragging = true;
+        cardEl.addClass("kanban-matsuo-touch-dragging");
+        this.draggedItem = item;
+        this.draggedFromLane = lane;
+      }, 300);
+    }, { passive: true });
+    cardEl.addEventListener("touchmove", (e) => {
+      if (!isDragging) {
+        const touch = e.touches[0];
+        if (Math.abs(touch.clientX - this.touchStartX) > 10 || Math.abs(touch.clientY - this.touchStartY) > 10) {
+          if (longPressTimer !== null) {
+            window.clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+        }
+        return;
+      }
+      e.preventDefault();
+    });
+    cardEl.addEventListener("touchend", () => {
+      if (longPressTimer !== null) {
+        window.clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+      if (isDragging) {
+        isDragging = false;
+        cardEl.removeClass("kanban-matsuo-touch-dragging");
+        this.draggedItem = null;
+        this.draggedFromLane = null;
+      }
+    }, { passive: true });
   }
   renderAddCardInput(laneEl, lane) {
     const inputContainer = laneEl.createDiv({ cls: "kanban-matsuo-add-card" });
     const input = inputContainer.createEl("input", {
       cls: "kanban-matsuo-add-card-input",
-      attr: {
-        type: "text",
-        placeholder: t("card.add"),
-        "aria-label": t("card.add-to", { lane: lane.title })
-      }
+      attr: { type: "text", placeholder: t("card.add"), "aria-label": t("card.add-to", { lane: lane.title }) }
     });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         const value = input.value.trim();
         if (value) {
-          const item = createItem(value);
-          lane.items.push(item);
+          lane.items.push(createItem(value));
           input.value = "";
           this.render();
           this.scheduleSave();
@@ -624,14 +906,10 @@ var KanbanView = class extends import_obsidian.ItemView {
     const addBtn = addLaneEl.createEl("button", {
       cls: "kanban-matsuo-add-lane-btn",
       text: t("board.add-lane"),
-      attr: {
-        "aria-label": t("board.add-lane"),
-        "data-tooltip-position": "top"
-      }
+      attr: { "aria-label": t("board.add-lane"), "data-tooltip-position": "top" }
     });
     addBtn.addEventListener("click", () => {
-      const newLane = createLane(t("board.new-lane"));
-      this.board.lanes.push(newLane);
+      this.board.lanes.push(createLane(t("board.new-lane")));
       this.render();
       this.scheduleSave();
       const laneEls = this.boardEl.querySelectorAll(".kanban-matsuo-lane-title");
@@ -653,11 +931,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     if (!parent) return;
     const input = parent.createEl("input", {
       cls: "kanban-matsuo-inline-edit",
-      attr: {
-        type: "text",
-        value: item.title,
-        "aria-label": t("card.edit-title")
-      }
+      attr: { type: "text", value: item.title, "aria-label": t("card.edit-title") }
     });
     input.value = item.title;
     titleEl.replaceWith(input);
@@ -690,41 +964,27 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.dragPlaceholder = listEl.createDiv({ cls: "kanban-matsuo-drop-placeholder" });
     this.dragPlaceholder.remove();
     const afterEl = this.getDragAfterElement(listEl, e.clientY);
-    if (afterEl) {
-      listEl.insertBefore(this.dragPlaceholder, afterEl);
-    } else {
-      listEl.appendChild(this.dragPlaceholder);
-    }
+    if (afterEl) listEl.insertBefore(this.dragPlaceholder, afterEl);
+    else listEl.appendChild(this.dragPlaceholder);
   }
   getDragAfterElement(container, y) {
-    const cards = Array.from(
-      container.querySelectorAll(".kanban-matsuo-card:not(.kanban-matsuo-card-dragging)")
-    );
-    let closest = {
-      offset: Number.POSITIVE_INFINITY,
-      element: null
-    };
+    const cards = Array.from(container.querySelectorAll(".kanban-matsuo-card:not(.kanban-matsuo-card-dragging)"));
+    let closest = { offset: Number.POSITIVE_INFINITY, element: null };
     for (const card of cards) {
       const box = card.getBoundingClientRect();
       const offset = y - box.top - box.height / 2;
-      if (offset < 0 && offset > -closest.offset) {
-        closest = { offset: -offset, element: card };
-      }
+      if (offset < 0 && offset > -closest.offset) closest = { offset: -offset, element: card };
     }
     return closest.element;
   }
   handleDrop(targetLane, listEl) {
     if (!this.draggedItem || !this.draggedFromLane || !this.board) return;
     const sourceIndex = this.draggedFromLane.items.indexOf(this.draggedItem);
-    if (sourceIndex >= 0) {
-      this.draggedFromLane.items.splice(sourceIndex, 1);
-    }
+    if (sourceIndex >= 0) this.draggedFromLane.items.splice(sourceIndex, 1);
     let targetIndex = targetLane.items.filter((i) => !i.archived).length;
     if (this.dragPlaceholder) {
-      const placeholderIndex = Array.from(listEl.children).indexOf(this.dragPlaceholder);
-      if (placeholderIndex >= 0) {
-        targetIndex = placeholderIndex;
-      }
+      const pi = Array.from(listEl.children).indexOf(this.dragPlaceholder);
+      if (pi >= 0) targetIndex = pi;
     }
     targetLane.items.splice(targetIndex, 0, this.draggedItem);
     this.removePlaceholder();
@@ -746,89 +1006,84 @@ var KanbanView = class extends import_obsidian.ItemView {
     }
   }
   showMenuAtEvent(menu, e) {
-    if (e instanceof MouseEvent) {
-      menu.showAtMouseEvent(e);
-    } else if (e.target instanceof HTMLElement) {
+    if (e instanceof MouseEvent) menu.showAtMouseEvent(e);
+    else if (e.target instanceof HTMLElement) {
       const rect = e.target.getBoundingClientRect();
       menu.showAtPosition({ x: rect.left, y: rect.bottom });
     }
   }
   showCardMenu(e, item, lane) {
     const menu = new import_obsidian.Menu();
-    menu.addItem((menuItem) => {
-      menuItem.setTitle(t("card.edit")).setIcon("pencil").onClick(() => {
+    menu.addItem((mi) => mi.setTitle(t("card.edit")).setIcon("pencil").onClick(() => {
+      var _a;
+      const cardEl = (_a = this.boardEl) == null ? void 0 : _a.querySelector(`[data-item-id="${item.id}"]`);
+      if (cardEl) this.startInlineEdit(cardEl, item);
+    }));
+    menu.addItem((mi) => mi.setTitle(item.checked ? t("card.mark-incomplete") : t("card.mark-complete")).setIcon(item.checked ? "square" : "check-square").onClick(() => {
+      item.checked = !item.checked;
+      this.render();
+      this.scheduleSave();
+    }));
+    menu.addItem((mi) => mi.setTitle(t("card.archive")).setIcon("archive").onClick(() => {
+      item.archived = true;
+      this.render();
+      this.scheduleSave();
+    }));
+    menu.addItem((mi) => mi.setTitle(t("card.create-note")).setIcon("file-plus").onClick(async () => await this.createLinkedNote(item)));
+    const wikilinkMatch = item.title.match(/\[\[([^\]]+)\]\]/);
+    if (wikilinkMatch) {
+      menu.addItem((mi) => mi.setTitle(t("card.open-note")).setIcon("file-text").onClick(async () => {
         var _a;
-        const cardEl = (_a = this.boardEl) == null ? void 0 : _a.querySelector(
-          `[data-item-id="${item.id}"]`
-        );
-        if (cardEl) {
-          this.startInlineEdit(cardEl, item);
-        }
-      });
-    });
-    menu.addItem((menuItem) => {
-      menuItem.setTitle(item.checked ? t("card.mark-incomplete") : t("card.mark-complete")).setIcon(item.checked ? "square" : "check-square").onClick(() => {
-        item.checked = !item.checked;
-        this.render();
-        this.scheduleSave();
-      });
-    });
-    menu.addItem((menuItem) => {
-      menuItem.setTitle(t("card.archive")).setIcon("archive").onClick(() => {
-        item.archived = true;
-        this.render();
-        this.scheduleSave();
-      });
-    });
+        await this.app.workspace.openLinkText(wikilinkMatch[1].split("|")[0], ((_a = this.file) == null ? void 0 : _a.path) || "");
+      }));
+    }
     menu.addSeparator();
     if (this.board) {
       for (const targetLane of this.board.lanes) {
         if (targetLane.id === lane.id) continue;
-        menu.addItem((menuItem) => {
-          menuItem.setTitle(t("card.move-to", { lane: targetLane.title })).setIcon("arrow-right").onClick(() => {
-            const index = lane.items.indexOf(item);
-            if (index >= 0) {
-              lane.items.splice(index, 1);
-              targetLane.items.push(item);
-              this.render();
-              this.scheduleSave();
-            }
-          });
-        });
+        menu.addItem((mi) => mi.setTitle(t("card.move-to", { lane: targetLane.title })).setIcon("arrow-right").onClick(() => {
+          const i = lane.items.indexOf(item);
+          if (i >= 0) {
+            lane.items.splice(i, 1);
+            targetLane.items.push(item);
+            this.render();
+            this.scheduleSave();
+          }
+        }));
       }
     }
     menu.addSeparator();
-    menu.addItem((menuItem) => {
-      menuItem.setTitle(t("card.delete")).setIcon("trash").onClick(() => {
-        this.deleteItem(item, lane);
-      });
-    });
+    menu.addItem((mi) => mi.setTitle(t("card.delete")).setIcon("trash").onClick(() => this.deleteItem(item, lane)));
     this.showMenuAtEvent(menu, e);
+  }
+  async createLinkedNote(item) {
+    var _a, _b, _c;
+    const cleanTitle = item.title.replace(/#[^\s#]+/g, "").replace(/@\{\d{4}-\d{2}-\d{2}\}/g, "").replace(/\[\[[^\]]+\]\]/g, "").trim();
+    const noteName = cleanTitle || "Untitled";
+    const folder = ((_b = (_a = this.file) == null ? void 0 : _a.parent) == null ? void 0 : _b.path) || "";
+    const notePath = (0, import_obsidian.normalizePath)(folder ? `${folder}/${noteName}.md` : `${noteName}.md`);
+    if (!this.app.vault.getAbstractFileByPath(notePath)) await this.app.vault.create(notePath, `# ${noteName}
+`);
+    if (!item.title.includes("[[")) {
+      item.title = `${item.title} [[${noteName}]]`;
+      this.render();
+      this.scheduleSave();
+    }
+    await this.app.workspace.openLinkText(noteName, ((_c = this.file) == null ? void 0 : _c.path) || "");
   }
   showLaneMenu(e, lane) {
     const menu = new import_obsidian.Menu();
-    menu.addItem((menuItem) => {
-      menuItem.setTitle(t("lane.set-wip-limit")).setIcon("alert-circle").onClick(() => {
-        new WipLimitModal(this.app, lane, (limit) => {
-          lane.wipLimit = limit;
-          this.render();
-          this.scheduleSave();
-        }).open();
-      });
-    });
+    menu.addItem((mi) => mi.setTitle(t("lane.set-wip-limit")).setIcon("alert-circle").onClick(() => new WipLimitModal(this.app, lane, (limit) => {
+      lane.wipLimit = limit;
+      this.render();
+      this.scheduleSave();
+    }).open()));
     menu.addSeparator();
-    menu.addItem((menuItem) => {
-      menuItem.setTitle(t("lane.delete")).setIcon("trash").onClick(() => {
-        const activeItems = lane.items.filter((i) => !i.archived).length;
-        if (activeItems > 0) {
-          new ConfirmDeleteModal(this.app, lane.title, activeItems, () => {
-            this.performLaneDelete(lane);
-          }).open();
-        } else {
-          this.performLaneDelete(lane);
-        }
-      });
-    });
+    menu.addItem((mi) => mi.setTitle(t("lane.delete")).setIcon("trash").onClick(() => {
+      const activeItems = lane.items.filter((i) => !i.archived).length;
+      if (activeItems > 0) new ConfirmDeleteModal(this.app, lane.title, activeItems, () => this.performLaneDelete(lane)).open();
+      else this.performLaneDelete(lane);
+    }));
     this.showMenuAtEvent(menu, e);
   }
   performLaneDelete(lane) {
@@ -842,13 +1097,12 @@ var KanbanView = class extends import_obsidian.ItemView {
   }
   filterCards(query) {
     var _a;
-    const normalizedQuery = query.toLowerCase().trim();
+    const q = query.toLowerCase().trim();
     const cards = (_a = this.boardEl) == null ? void 0 : _a.querySelectorAll(".kanban-matsuo-card");
     if (!cards) return;
     cards.forEach((cardEl) => {
       var _a2;
-      const text = ((_a2 = cardEl.textContent) == null ? void 0 : _a2.toLowerCase()) || "";
-      const match = !normalizedQuery || text.includes(normalizedQuery);
+      const match = !q || (((_a2 = cardEl.textContent) == null ? void 0 : _a2.toLowerCase()) || "").includes(q);
       cardEl.toggleClass("kanban-matsuo-card-hidden", !match);
     });
   }
@@ -869,23 +1123,16 @@ var WipLimitModal = class extends import_obsidian.Modal {
       text.inputEl.min = "0";
       text.inputEl.setAttribute("aria-label", t("modal.wip-limit-label"));
       text.inputEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          this.submit(text.getValue());
-        }
+        if (e.key === "Enter") this.submit(text.getValue());
       });
     });
-    new import_obsidian.Setting(contentEl).addButton((btn) => {
-      btn.setButtonText(t("modal.save")).setCta().onClick(() => {
-        const input = contentEl.querySelector("input");
-        this.submit((input == null ? void 0 : input.value) || "0");
-      });
-    }).addButton((btn) => {
-      btn.setButtonText(t("modal.cancel")).onClick(() => this.close());
-    });
+    new import_obsidian.Setting(contentEl).addButton((btn) => btn.setButtonText(t("modal.save")).setCta().onClick(() => {
+      const inp = contentEl.querySelector("input");
+      this.submit((inp == null ? void 0 : inp.value) || "0");
+    })).addButton((btn) => btn.setButtonText(t("modal.cancel")).onClick(() => this.close()));
   }
   submit(value) {
-    const limit = parseInt(value, 10) || 0;
-    this.onSubmit(limit);
+    this.onSubmit(parseInt(value, 10) || 0);
     this.close();
   }
   onClose() {
@@ -902,17 +1149,11 @@ var ConfirmDeleteModal = class extends import_obsidian.Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.createEl("h3", { text: t("modal.delete-lane-title") });
-    contentEl.createEl("p", {
-      text: t("lane.delete-confirm", { count: this.cardCount })
-    });
-    new import_obsidian.Setting(contentEl).addButton((btn) => {
-      btn.setButtonText(t("modal.delete")).setWarning().onClick(() => {
-        this.onConfirm();
-        this.close();
-      });
-    }).addButton((btn) => {
-      btn.setButtonText(t("modal.cancel")).onClick(() => this.close());
-    });
+    contentEl.createEl("p", { text: t("lane.delete-confirm", { count: this.cardCount }) });
+    new import_obsidian.Setting(contentEl).addButton((btn) => btn.setButtonText(t("modal.delete")).setWarning().onClick(() => {
+      this.onConfirm();
+      this.close();
+    })).addButton((btn) => btn.setButtonText(t("modal.cancel")).onClick(() => this.close()));
   }
   onClose() {
     this.contentEl.empty();
@@ -982,10 +1223,76 @@ var KanbanSettingTab = class extends import_obsidian2.PluginSettingTab {
         }
       })
     );
+    new import_obsidian2.Setting(containerEl).setName(t("settings.templates")).setHeading();
+    new import_obsidian2.Setting(containerEl).setName(t("settings.board-template")).setDesc(t("settings.board-template-desc")).addText(
+      (text) => text.setPlaceholder("templates/kanban-template.md").setValue(this.plugin.settings.boardTemplatePath).onChange(async (value) => {
+        this.plugin.settings.boardTemplatePath = value.trim();
+        await this.plugin.saveSettings();
+      })
+    );
   }
 };
 
 // src/main.ts
+var LaneSuggestModal = class extends import_obsidian3.FuzzySuggestModal {
+  constructor(app, lanes, onChoose) {
+    super(app);
+    this.lanes = lanes;
+    this.onChoose = onChoose;
+    this.setPlaceholder(t("modal.select-lane"));
+  }
+  getItems() {
+    return this.lanes;
+  }
+  getItemText(item) {
+    return item;
+  }
+  onChooseItem(item) {
+    this.onChoose(item);
+  }
+};
+var CardSuggestModal = class extends import_obsidian3.FuzzySuggestModal {
+  constructor(app, items, onChoose) {
+    super(app);
+    this.items = items;
+    this.onChoose = onChoose;
+    this.setPlaceholder(t("modal.select-card"));
+  }
+  getItems() {
+    return this.items;
+  }
+  getItemText(item) {
+    return `[${item.lane}] ${item.card}`;
+  }
+  onChooseItem(item) {
+    this.onChoose(item.lane, item.card);
+  }
+};
+var CardTitleModal = class extends import_obsidian3.FuzzySuggestModal {
+  constructor(app, onChoose) {
+    super(app);
+    this.onChoose = onChoose;
+    this.setPlaceholder(t("modal.card-title"));
+  }
+  getItems() {
+    return [];
+  }
+  getItemText(item) {
+    return item;
+  }
+  onChooseItem(item) {
+    this.onChoose(item);
+  }
+  // Override to allow submitting a free-form query
+  selectSuggestion() {
+    var _a, _b;
+    const value = (_b = (_a = this.inputEl) == null ? void 0 : _a.value) != null ? _b : "";
+    if (value.trim()) {
+      this.close();
+      this.onChoose(value.trim());
+    }
+  }
+};
 var KanbanPlugin = class extends import_obsidian3.Plugin {
   constructor() {
     super(...arguments);
@@ -1010,6 +1317,13 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
       }
     });
     this.addCommand({
+      id: "create-from-template",
+      name: t("command.create-from-template"),
+      callback: async () => {
+        await this.createNewBoard(true);
+      }
+    });
+    this.addCommand({
       id: "toggle-board-view",
       name: t("command.toggle-board-view"),
       checkCallback: (checking) => {
@@ -1023,11 +1337,65 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
         return false;
       }
     });
+    this.addCommand({
+      id: "add-card-to-lane",
+      name: t("command.add-card"),
+      checkCallback: (checking) => {
+        var _a;
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !(file instanceof import_obsidian3.TFile)) return false;
+        const leaves = this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE);
+        const activeView = (_a = leaves.find(
+          (l) => {
+            var _a2;
+            return l.view instanceof KanbanView && ((_a2 = l.view.file) == null ? void 0 : _a2.path) === file.path;
+          }
+        )) == null ? void 0 : _a.view;
+        if (!activeView) return false;
+        if (!checking) {
+          this.commandAddCardToLane(activeView);
+        }
+        return true;
+      }
+    });
+    this.addCommand({
+      id: "move-card",
+      name: t("command.move-card"),
+      checkCallback: (checking) => {
+        var _a;
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !(file instanceof import_obsidian3.TFile)) return false;
+        const leaves = this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE);
+        const activeView = (_a = leaves.find(
+          (l) => {
+            var _a2;
+            return l.view instanceof KanbanView && ((_a2 = l.view.file) == null ? void 0 : _a2.path) === file.path;
+          }
+        )) == null ? void 0 : _a.view;
+        if (!activeView) return false;
+        if (!checking) {
+          this.commandMoveCard(activeView);
+        }
+        return true;
+      }
+    });
     this.addRibbonIcon("layout-dashboard", t("command.create-new-board"), async () => {
       await this.createNewBoard();
     });
     this.addSettingTab(new KanbanSettingTab(this.app, this));
     this.registerExtensions(["kanban"], KANBAN_VIEW_TYPE);
+    this.registerEvent(
+      this.app.workspace.on("file-menu", (menu, file) => {
+        menu.addItem((item) => {
+          item.setTitle(t("command.create-new-board")).setIcon("layout-dashboard").onClick(async () => {
+            var _a, _b;
+            await this.createNewBoardInFolder(
+              file instanceof import_obsidian3.TFile ? (_b = (_a = file.parent) == null ? void 0 : _a.path) != null ? _b : "" : file.path
+            );
+          });
+        });
+      })
+    );
   }
   async onunload() {
   }
@@ -1038,6 +1406,9 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
     await this.saveData(this.settings);
     setLocale(this.settings.language);
   }
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
   /**
    * Check if a file is a kanban board by reading its frontmatter.
    */
@@ -1085,14 +1456,36 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
     }
   }
   /**
-   * Create a new kanban board file.
+   * Build the initial content for a new board.
+   * If `useTemplate` is true and `boardTemplatePath` is configured, reads that
+   * file as the template. Falls back to generating a default board.
    */
-  async createNewBoard() {
-    var _a;
+  async buildNewBoardContent(useTemplate) {
+    if (useTemplate && this.settings.boardTemplatePath) {
+      const templatePath = (0, import_obsidian3.normalizePath)(this.settings.boardTemplatePath);
+      const templateFile = this.app.vault.getAbstractFileByPath(templatePath);
+      if (templateFile instanceof import_obsidian3.TFile) {
+        return await this.app.vault.read(templateFile);
+      }
+      new import_obsidian3.Notice(`Template not found: ${templatePath}`);
+    }
     const board = createBoard(this.settings.defaultLanes);
-    const content = boardToMarkdown(board);
+    return boardToMarkdown(board);
+  }
+  /**
+   * Create a new kanban board file, optionally using the configured template.
+   */
+  async createNewBoard(useTemplate = false) {
+    var _a, _b;
     const activeFile = this.app.workspace.getActiveFile();
-    const folder = activeFile ? ((_a = activeFile.parent) == null ? void 0 : _a.path) || "" : "";
+    const folder = activeFile ? (_b = (_a = activeFile.parent) == null ? void 0 : _a.path) != null ? _b : "" : "";
+    await this.createNewBoardInFolder(folder, useTemplate);
+  }
+  /**
+   * Create a new kanban board in a specific folder path.
+   */
+  async createNewBoardInFolder(folder, useTemplate = false) {
+    const content = await this.buildNewBoardContent(useTemplate);
     const baseName = t("board.kanban-board");
     let fileName = `${baseName}.md`;
     let counter = 1;
@@ -1105,5 +1498,62 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
     if (file instanceof import_obsidian3.TFile) {
       await this.openKanbanView(file);
     }
+  }
+  /**
+   * "Add card to lane" command implementation.
+   * Opens a lane picker, then prompts for card title.
+   */
+  commandAddCardToLane(view) {
+    const board = view.getBoard();
+    if (!board) {
+      new import_obsidian3.Notice(t("modal.select-lane"));
+      return;
+    }
+    const laneNames = board.lanes.map((l) => l.title);
+    if (laneNames.length === 0) return;
+    new LaneSuggestModal(this.app, laneNames, (selectedLane) => {
+      const cardModal = new CardTitleModal(this.app, async (cardTitle) => {
+        if (!cardTitle) return;
+        const lane = board.lanes.find((l) => l.title === selectedLane);
+        if (!lane) return;
+        const item = createItem(cardTitle);
+        lane.items.push(item);
+        await view.saveBoard(board);
+        view.refresh();
+      });
+      cardModal.open();
+    }).open();
+  }
+  /**
+   * "Move card" command implementation.
+   * Opens a card picker across all lanes, then a target lane picker.
+   */
+  commandMoveCard(view) {
+    const board = view.getBoard();
+    if (!board) return;
+    const cardItems = [];
+    for (const lane of board.lanes) {
+      for (const item of lane.items) {
+        if (!item.archived) {
+          cardItems.push({ lane: lane.title, card: item.title });
+        }
+      }
+    }
+    if (cardItems.length === 0) return;
+    new CardSuggestModal(this.app, cardItems, (sourceLaneName, cardTitle) => {
+      const laneNames = board.lanes.map((l) => l.title);
+      new LaneSuggestModal(this.app, laneNames, async (targetLaneName) => {
+        if (sourceLaneName === targetLaneName) return;
+        const sourceLane = board.lanes.find((l) => l.title === sourceLaneName);
+        const targetLane = board.lanes.find((l) => l.title === targetLaneName);
+        if (!sourceLane || !targetLane) return;
+        const cardIndex = sourceLane.items.findIndex((i) => i.title === cardTitle);
+        if (cardIndex === -1) return;
+        const [movedCard] = sourceLane.items.splice(cardIndex, 1);
+        targetLane.items.push(movedCard);
+        await view.saveBoard(board);
+        view.refresh();
+      }).open();
+    }).open();
   }
 };

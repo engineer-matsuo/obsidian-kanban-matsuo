@@ -62,4 +62,37 @@ export const ja: Record<TranslationKey, string> = {
 	'modal.cancel': 'キャンセル',
 	'modal.delete-lane-title': 'レーンの削除',
 	'modal.delete': '削除',
+
+	// Filter
+	'filter.by-tag': 'タグで絞り込み',
+	'filter.by-date': '日付で絞り込み',
+	'filter.all': 'すべて',
+	'filter.overdue': '期限切れ',
+	'filter.today': '今日',
+	'filter.this-week': '今週',
+	'filter.no-date': '日付なし',
+	'filter.clear': 'フィルタを解除',
+
+	// Card extra
+	'card.create-note': 'リンク先ノートを作成',
+	'card.open-note': 'リンク先ノートを開く',
+
+	// Commands extra
+	'command.add-card': 'レーンにカードを追加',
+	'command.move-card': 'カードを移動',
+
+	// Lane drag
+	'lane.drag-handle': 'ドラッグしてレーンを並び替え',
+
+	// Modal extra
+	'modal.select-lane': 'レーンを選択',
+	'modal.select-card': 'カードを選択',
+	'modal.select-target-lane': '移動先レーンを選択',
+	'modal.card-title': 'カードのタイトル',
+
+	// Template
+	'command.create-from-template': 'テンプレートからボードを作成',
+	'settings.templates': 'テンプレート',
+	'settings.board-template': 'ボードテンプレート',
+	'settings.board-template-desc': '新しいボード作成時のテンプレートファイルパス。',
 };

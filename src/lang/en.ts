@@ -60,6 +60,39 @@ export const en = {
 	'modal.cancel': 'Cancel',
 	'modal.delete-lane-title': 'Delete lane',
 	'modal.delete': 'Delete',
+
+	// Filter
+	'filter.by-tag': 'Filter by tag',
+	'filter.by-date': 'Filter by date',
+	'filter.all': 'All',
+	'filter.overdue': 'Overdue',
+	'filter.today': 'Today',
+	'filter.this-week': 'This week',
+	'filter.no-date': 'No date',
+	'filter.clear': 'Clear filter',
+
+	// Card extra
+	'card.create-note': 'Create linked note',
+	'card.open-note': 'Open linked note',
+
+	// Commands extra
+	'command.add-card': 'Add card to lane',
+	'command.move-card': 'Move card',
+
+	// Lane drag
+	'lane.drag-handle': 'Drag to reorder lane',
+
+	// Modal extra
+	'modal.select-lane': 'Select lane',
+	'modal.select-card': 'Select card',
+	'modal.select-target-lane': 'Select target lane',
+	'modal.card-title': 'Card title',
+
+	// Template
+	'command.create-from-template': 'Create board from template',
+	'settings.templates': 'Templates',
+	'settings.board-template': 'Board template',
+	'settings.board-template-desc': 'Template file path for new boards.',
 };
 
 export type TranslationKey = keyof typeof en;

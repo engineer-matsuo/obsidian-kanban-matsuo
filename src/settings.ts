@@ -126,5 +126,21 @@ export class KanbanSettingTab extends PluginSettingTab {
 						}
 					})
 			);
+
+		// Templates
+		new Setting(containerEl).setName(t('settings.templates')).setHeading();
+
+		new Setting(containerEl)
+			.setName(t('settings.board-template'))
+			.setDesc(t('settings.board-template-desc'))
+			.addText((text) =>
+				text
+					.setPlaceholder('templates/kanban-template.md')
+					.setValue(this.plugin.settings.boardTemplatePath)
+					.onChange(async (value) => {
+						this.plugin.settings.boardTemplatePath = value.trim();
+						await this.plugin.saveSettings();
+					})
+			);
 	}
 }

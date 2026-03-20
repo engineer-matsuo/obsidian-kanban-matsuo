@@ -36,6 +36,7 @@ export interface KanbanPluginSettings {
 	showCheckboxes: boolean;
 	autoSaveDelay: number;
 	language: 'auto' | 'en' | 'ja';
+	boardTemplatePath: string;
 }
 
 export const DEFAULT_PLUGIN_SETTINGS: KanbanPluginSettings = {
@@ -46,6 +47,7 @@ export const DEFAULT_PLUGIN_SETTINGS: KanbanPluginSettings = {
 	showCheckboxes: true,
 	autoSaveDelay: 500,
 	language: 'auto',
+	boardTemplatePath: '',
 };
 
 export const DEFAULT_BOARD_SETTINGS: KanbanBoardSettings = {

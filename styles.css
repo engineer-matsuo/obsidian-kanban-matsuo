@@ -284,6 +284,87 @@
 	outline-offset: 2px;
 }
 
+/* Filter buttons */
+.kanban-matsuo-filter-btn {
+	min-width: 44px;
+	min-height: 44px;
+	margin-left: var(--size-4-1);
+}
+
+.kanban-matsuo-filter-btn:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.kanban-matsuo-filter-clear {
+	min-width: 44px;
+	min-height: 44px;
+	margin-left: var(--size-4-1);
+	color: var(--text-error);
+}
+
+/* Lane drag handle */
+.kanban-matsuo-lane-drag-handle {
+	flex-shrink: 0;
+	min-width: 44px;
+	min-height: 44px;
+	cursor: grab;
+	color: var(--text-faint);
+}
+
+.kanban-matsuo-lane-drag-handle:hover {
+	color: var(--text-muted);
+}
+
+.kanban-matsuo-lane-dragging {
+	opacity: 0.5;
+	border-style: dashed;
+}
+
+/* Touch drag feedback */
+.kanban-matsuo-touch-dragging {
+	opacity: 0.6;
+	box-shadow: 0 4px 16px var(--background-modifier-box-shadow);
+	transform: scale(1.02);
+}
+
+/* Tags - clickable */
+.kanban-matsuo-tag {
+	cursor: pointer;
+}
+
+.kanban-matsuo-tag:hover {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+/* Card title - Markdown rendered */
+.kanban-matsuo-card-title p {
+	margin: 0;
+}
+
+.kanban-matsuo-card-title a.internal-link {
+	color: var(--text-accent);
+	text-decoration: underline;
+	text-decoration-style: dotted;
+}
+
+/* Touch targets ≥ 44x44px */
+.kanban-matsuo-collapse-btn,
+.kanban-matsuo-lane-menu {
+	min-width: 44px;
+	min-height: 44px;
+}
+
+.kanban-matsuo-card-checkbox {
+	min-width: 44px;
+	min-height: 44px;
+}
+
+.kanban-matsuo-add-card-input {
+	min-height: 44px;
+}
+
 /* Hidden card (search filter) */
 .kanban-matsuo-card-hidden {
 	display: none;
