@@ -142,8 +142,8 @@
 .kanban-matsuo-card-list {
 	display: flex;
 	flex-direction: column;
-	gap: var(--size-4-2);
-	padding: var(--size-4-2);
+	gap: var(--size-4-3);
+	padding: var(--size-4-3);
 	overflow-y: auto;
 	flex: 1;
 	min-height: 40px;
@@ -173,7 +173,14 @@
 }
 
 .kanban-matsuo-card-dragging {
-	opacity: 0.4;
+	opacity: 0;
+	height: 0 !important;
+	min-height: 0 !important;
+	max-height: 0 !important;
+	padding: 0 !important;
+	margin: 0 !important;
+	border: none !important;
+	overflow: hidden;
 }
 
 .kanban-matsuo-card-checked {
@@ -625,11 +632,14 @@ span.kanban-matsuo-subtask-done {
 }
 
 /* Drop placeholder */
-.kanban-matsuo-drop-placeholder {
-	height: 8px;
-	background: var(--interactive-accent);
-	border-radius: 4px;
+.kanban-matsuo-card-list .kanban-matsuo-drop-placeholder {
+	height: 80px;
+	min-height: 80px;
+	background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+	border: 2px dashed var(--interactive-accent);
+	border-radius: var(--radius-s);
 	margin: var(--size-4-1) 0;
+	box-sizing: border-box;
 }
 
 .kanban-matsuo-drop-placeholder-indented {

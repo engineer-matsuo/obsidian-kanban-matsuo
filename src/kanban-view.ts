@@ -500,8 +500,9 @@ export class KanbanView extends ItemView {
 			this.draggedItem = item; this.draggedFromLane = lane;
 			this.dragOriginX = e.clientX;
 			this.dragOriginDepth = depth;
-			cardEl.addClass('kanban-matsuo-card-dragging');
 			if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.id); }
+			// Collapse card after browser captures drag image
+			window.setTimeout(() => { cardEl.addClass('kanban-matsuo-card-dragging'); }, 0);
 		});
 		cardEl.addEventListener('dragend', () => {
 			cardEl.removeClass('kanban-matsuo-card-dragging');

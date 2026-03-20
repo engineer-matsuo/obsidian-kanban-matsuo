@@ -1033,11 +1033,13 @@ var KanbanView = class extends import_obsidian.ItemView {
       this.draggedFromLane = lane;
       this.dragOriginX = e.clientX;
       this.dragOriginDepth = depth;
-      cardEl.addClass("kanban-matsuo-card-dragging");
       if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("text/plain", item.id);
       }
+      window.setTimeout(() => {
+        cardEl.addClass("kanban-matsuo-card-dragging");
+      }, 0);
     });
     cardEl.addEventListener("dragend", () => {
       cardEl.removeClass("kanban-matsuo-card-dragging");
