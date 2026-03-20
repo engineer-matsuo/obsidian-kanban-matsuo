@@ -1,0 +1,316 @@
+/* =============================================
+ * Kanban Board Matsuo - Styles
+ * All colors use Obsidian CSS variables for theme support.
+ * All selectors are scoped with .kanban-matsuo-* prefix.
+ * ============================================= */
+
+/* Container */
+.kanban-matsuo-container {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	overflow: hidden;
+}
+
+/* Toolbar */
+.kanban-matsuo-toolbar {
+	display: flex;
+	align-items: center;
+	padding: var(--size-4-2) var(--size-4-3);
+	border-bottom: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+}
+
+.kanban-matsuo-search {
+	width: 240px;
+	padding: var(--size-4-1) var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+}
+
+.kanban-matsuo-search:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+/* Board */
+.kanban-matsuo-board {
+	display: flex;
+	gap: var(--size-4-3);
+	padding: var(--size-4-3);
+	overflow-x: auto;
+	overflow-y: hidden;
+	flex: 1;
+	align-items: flex-start;
+}
+
+/* Lane */
+.kanban-matsuo-lane {
+	display: flex;
+	flex-direction: column;
+	flex-shrink: 0;
+	width: var(--lane-width, 272px);
+	min-width: var(--lane-width, 272px);
+	max-height: 100%;
+	background: var(--background-secondary);
+	border-radius: var(--radius-m);
+	border: 1px solid var(--background-modifier-border);
+}
+
+/* Lane header */
+.kanban-matsuo-lane-header {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: var(--size-4-2) var(--size-4-3);
+	border-bottom: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+}
+
+.kanban-matsuo-collapse-btn {
+	flex-shrink: 0;
+	min-width: 24px;
+	min-height: 24px;
+}
+
+.kanban-matsuo-lane-title {
+	flex: 1;
+	margin: 0;
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+	cursor: text;
+	border-radius: var(--radius-s);
+	padding: var(--size-2-1) var(--size-2-2);
+}
+
+.kanban-matsuo-lane-title:focus:not(:focus-visible) {
+	outline: none;
+}
+
+.kanban-matsuo-lane-title:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.kanban-matsuo-lane-count {
+	flex-shrink: 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	background: var(--background-modifier-hover);
+	padding: var(--size-2-1) var(--size-4-2);
+	border-radius: var(--radius-s);
+}
+
+.kanban-matsuo-wip-exceeded {
+	background: var(--background-modifier-error);
+	color: var(--text-on-accent);
+}
+
+.kanban-matsuo-lane-menu {
+	flex-shrink: 0;
+	min-width: 24px;
+	min-height: 24px;
+}
+
+/* Card list */
+.kanban-matsuo-card-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	padding: var(--size-4-2);
+	overflow-y: auto;
+	flex: 1;
+	min-height: 40px;
+}
+
+/* Card */
+.kanban-matsuo-card {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2) var(--size-4-3);
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	cursor: grab;
+	transition: box-shadow 150ms ease, border-color 150ms ease;
+}
+
+.kanban-matsuo-card:hover {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 2px 8px var(--background-modifier-box-shadow);
+}
+
+.kanban-matsuo-card:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.kanban-matsuo-card-dragging {
+	opacity: 0.4;
+}
+
+.kanban-matsuo-card-checked {
+	opacity: 0.6;
+}
+
+.kanban-matsuo-card-checked .kanban-matsuo-card-title {
+	text-decoration: line-through;
+	color: var(--text-muted);
+}
+
+/* Card checkbox */
+.kanban-matsuo-card-checkbox {
+	flex-shrink: 0;
+	margin-top: 2px;
+	min-width: 18px;
+	min-height: 18px;
+}
+
+/* Card body */
+.kanban-matsuo-card-body {
+	flex: 1;
+	min-width: 0;
+}
+
+.kanban-matsuo-card-title {
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	word-break: break-word;
+}
+
+/* Tags */
+.kanban-matsuo-card-tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-2-2);
+	margin-top: var(--size-2-2);
+}
+
+.kanban-matsuo-tag {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-accent);
+	background: var(--background-modifier-hover);
+	padding: 0 var(--size-2-3);
+	border-radius: var(--radius-s);
+}
+
+/* Due date */
+.kanban-matsuo-card-date {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	margin-top: var(--size-2-2);
+}
+
+.kanban-matsuo-date-overdue {
+	color: var(--text-error);
+}
+
+.kanban-matsuo-date-today {
+	color: var(--text-accent);
+	font-weight: var(--font-semibold);
+}
+
+/* Inline edit */
+.kanban-matsuo-inline-edit {
+	width: 100%;
+	padding: var(--size-2-1) var(--size-2-2);
+	border: 1px solid var(--interactive-accent);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+}
+
+.kanban-matsuo-inline-edit:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+/* Add card */
+.kanban-matsuo-add-card {
+	padding: var(--size-4-2);
+	flex-shrink: 0;
+}
+
+.kanban-matsuo-add-card-input {
+	width: 100%;
+	padding: var(--size-4-1) var(--size-4-2);
+	border: 1px dashed var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: transparent;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.kanban-matsuo-add-card-input:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+	border-style: solid;
+	color: var(--text-normal);
+}
+
+/* Add lane */
+.kanban-matsuo-add-lane {
+	flex-shrink: 0;
+	display: flex;
+	align-items: flex-start;
+}
+
+.kanban-matsuo-add-lane-btn {
+	padding: var(--size-4-2) var(--size-4-4);
+	min-width: 200px;
+	border: 2px dashed var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: transparent;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+	min-height: 44px;
+	transition: border-color 150ms ease, color 150ms ease;
+}
+
+.kanban-matsuo-add-lane-btn:hover {
+	border-color: var(--interactive-accent);
+	color: var(--text-normal);
+}
+
+.kanban-matsuo-add-lane-btn:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+}
+
+/* Hidden card (search filter) */
+.kanban-matsuo-card-hidden {
+	display: none;
+}
+
+/* Drop placeholder */
+.kanban-matsuo-drop-placeholder {
+	height: 4px;
+	background: var(--interactive-accent);
+	border-radius: 2px;
+	margin: var(--size-2-1) 0;
+}
+
+/* Mobile responsive */
+@media (max-width: 600px) {
+	.kanban-matsuo-board {
+		flex-direction: column;
+		overflow-x: hidden;
+		overflow-y: auto;
+	}
+
+	.kanban-matsuo-lane {
+		width: 100% !important;
+		min-width: 100% !important;
+	}
+
+	.kanban-matsuo-add-lane-btn {
+		width: 100%;
+	}
+}

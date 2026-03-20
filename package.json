@@ -1,0 +1,29 @@
+{
+	"name": "obsidian-kanban-matsuo",
+	"version": "0.1.0",
+	"description": "Markdown-based kanban board for task and project management.",
+	"main": "main.js",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "node esbuild.config.mjs production",
+		"test": "vitest run",
+		"lint": "npx eslint src/"
+	},
+	"keywords": [
+		"obsidian",
+		"kanban"
+	],
+	"license": "MIT",
+	"devDependencies": {
+		"@types/node": "^22.0.0",
+		"@typescript-eslint/eslint-plugin": "^8.0.0",
+		"@typescript-eslint/parser": "^8.0.0",
+		"builtin-modules": "^4.0.0",
+		"esbuild": "^0.24.0",
+		"eslint": "^9.0.0",
+		"obsidian": "latest",
+		"tslib": "2.8.0",
+		"typescript": "5.7.2",
+		"vitest": "^4.1.0"
+	}
+}

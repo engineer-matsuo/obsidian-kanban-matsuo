@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+.agents/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Obsidian
+data.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/
+
+# Skills lock (auto-generated)
+skills-lock.json
