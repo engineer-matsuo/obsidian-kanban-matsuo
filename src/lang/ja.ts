@@ -128,4 +128,8 @@ export const ja: Record<TranslationKey, string> = {
 	'subtask.delete': 'サブタスクを削除',
 	'subtask.collapse-done': '完了を非表示',
 	'subtask.show-done': '完了を表示',
+
+	// Indent buttons
+	'card.indent': '段下げ（サブタスクにする）',
+	'card.outdent': '段上げ（元に戻す）',
 };

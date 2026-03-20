@@ -126,6 +126,10 @@ export const en = {
 	'subtask.delete': 'Delete subtask',
 	'subtask.collapse-done': 'Hide completed',
 	'subtask.show-done': 'Show completed',
+
+	// Indent buttons
+	'card.indent': 'Indent (make subtask)',
+	'card.outdent': 'Outdent (promote)',
 };
 
 export type TranslationKey = keyof typeof en;

@@ -511,6 +511,9 @@ export class KanbanView extends ItemView {
 			dateEl.setText(`📅 ${item.dueDate}`);
 		}
 
+		// Indent/Outdent buttons
+		this.renderIndentButtons(bodyEl, item, lane, depth);
+
 		// Children progress bar (children are rendered as separate cards below)
 		if (item.children.length > 0) {
 			const { done, total } = this.countChildren(item.children);
@@ -524,6 +527,117 @@ export class KanbanView extends ItemView {
 				text: t('subtask.progress', { done, total }),
 			});
 		}
+	}
+
+	/**
+	 * Render indent/outdent buttons on a card.
+	 * Indent: make this card a child of the sibling above.
+	 * Outdent: promote this card to the parent's level.
+	 */
+	private renderIndentButtons(container: HTMLElement, item: KanbanItem, lane: KanbanLane, depth: number): void {
+		// Find the sibling list this item belongs to
+		const siblingList = this.findParentList(lane.items, item);
+		if (!siblingList) return;
+
+		const idx = siblingList.indexOf(item);
+		const canIndent = idx > 0; // Has a sibling above to become parent
+		const canOutdent = depth > 0; // Is a child, can promote
+
+		if (!canIndent && !canOutdent) return;
+
+		const btnRow = container.createDiv({ cls: 'kanban-matsuo-indent-buttons' });
+
+		if (canOutdent) {
+			const outdentBtn = btnRow.createEl('button', {
+				cls: 'kanban-matsuo-indent-btn clickable-icon',
+				attr: { 'aria-label': t('card.outdent'), 'data-tooltip-position': 'top' },
+			});
+			setIcon(outdentBtn, 'arrow-left');
+			outdentBtn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				this.outdentItem(item, lane);
+			});
+		}
+
+		if (canIndent) {
+			const indentBtn = btnRow.createEl('button', {
+				cls: 'kanban-matsuo-indent-btn clickable-icon',
+				attr: { 'aria-label': t('card.indent'), 'data-tooltip-position': 'top' },
+			});
+			setIcon(indentBtn, 'arrow-right');
+			indentBtn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				this.indentItem(item, lane);
+			});
+		}
+	}
+
+	/**
+	 * Find the array (lane.items or some parent's .children) that directly contains this item.
+	 */
+	private findParentList(items: KanbanItem[], target: KanbanItem): KanbanItem[] | null {
+		if (items.includes(target)) return items;
+		for (const item of items) {
+			const found = this.findParentList(item.children, target);
+			if (found) return found;
+		}
+		return null;
+	}
+
+	/**
+	 * Indent: move item to be a child of the sibling directly above.
+	 */
+	private indentItem(item: KanbanItem, lane: KanbanLane): void {
+		const list = this.findParentList(lane.items, item);
+		if (!list) return;
+		const idx = list.indexOf(item);
+		if (idx <= 0) return;
+
+		const newParent = list[idx - 1];
+		list.splice(idx, 1);
+		newParent.children.push(item);
+		this.render();
+		this.scheduleSave();
+	}
+
+	/**
+	 * Outdent: move item from parent's children to grandparent's list, after the parent.
+	 */
+	private outdentItem(item: KanbanItem, lane: KanbanLane): void {
+		// Find the parent that holds this item
+		const parentInfo = this.findParentItem(lane.items, item);
+		if (!parentInfo) return;
+
+		const { parent, grandparentList } = parentInfo;
+		const childIdx = parent.children.indexOf(item);
+		if (childIdx < 0) return;
+
+		parent.children.splice(childIdx, 1);
+
+		// Insert after the parent in the grandparent list
+		const parentIdx = grandparentList.indexOf(parent);
+		grandparentList.splice(parentIdx + 1, 0, item);
+
+		this.render();
+		this.scheduleSave();
+	}
+
+	/**
+	 * Find the parent item and the grandparent list for an item.
+	 */
+	private findParentItem(
+		items: KanbanItem[],
+		target: KanbanItem,
+		grandparentList?: KanbanItem[],
+	): { parent: KanbanItem; grandparentList: KanbanItem[] } | null {
+		for (const item of items) {
+			if (item.children.includes(target)) {
+				return { parent: item, grandparentList: grandparentList || items };
+			}
+			const found = this.findParentItem(item.children, target, items);
+			if (found) return found;
+		}
+		return null;
 	}
 
 	private countChildren(children: KanbanItem[]): { done: number; total: number } {

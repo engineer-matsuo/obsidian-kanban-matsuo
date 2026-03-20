@@ -401,7 +401,10 @@ var en = {
   "subtask.promote": "Promote to card",
   "subtask.delete": "Delete subtask",
   "subtask.collapse-done": "Hide completed",
-  "subtask.show-done": "Show completed"
+  "subtask.show-done": "Show completed",
+  // Indent buttons
+  "card.indent": "Indent (make subtask)",
+  "card.outdent": "Outdent (promote)"
 };
 
 // src/lang/ja.ts
@@ -517,7 +520,10 @@ var ja = {
   "subtask.promote": "\u30AB\u30FC\u30C9\u306B\u6607\u683C",
   "subtask.delete": "\u30B5\u30D6\u30BF\u30B9\u30AF\u3092\u524A\u9664",
   "subtask.collapse-done": "\u5B8C\u4E86\u3092\u975E\u8868\u793A",
-  "subtask.show-done": "\u5B8C\u4E86\u3092\u8868\u793A"
+  "subtask.show-done": "\u5B8C\u4E86\u3092\u8868\u793A",
+  // Indent buttons
+  "card.indent": "\u6BB5\u4E0B\u3052\uFF08\u30B5\u30D6\u30BF\u30B9\u30AF\u306B\u3059\u308B\uFF09",
+  "card.outdent": "\u6BB5\u4E0A\u3052\uFF08\u5143\u306B\u623B\u3059\uFF09"
 };
 
 // src/lang/index.ts
@@ -1005,6 +1011,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       else if (item.dueDate === today) dateEl.addClass("kanban-matsuo-date-today");
       dateEl.setText(`\u{1F4C5} ${item.dueDate}`);
     }
+    this.renderIndentButtons(bodyEl, item, lane, depth);
     if (item.children.length > 0) {
       const { done, total } = this.countChildren(item.children);
       const progressEl = bodyEl.createDiv({ cls: "kanban-matsuo-subtask-progress" });
@@ -1017,6 +1024,95 @@ var KanbanView = class extends import_obsidian.ItemView {
         text: t("subtask.progress", { done, total })
       });
     }
+  }
+  /**
+   * Render indent/outdent buttons on a card.
+   * Indent: make this card a child of the sibling above.
+   * Outdent: promote this card to the parent's level.
+   */
+  renderIndentButtons(container, item, lane, depth) {
+    const siblingList = this.findParentList(lane.items, item);
+    if (!siblingList) return;
+    const idx = siblingList.indexOf(item);
+    const canIndent = idx > 0;
+    const canOutdent = depth > 0;
+    if (!canIndent && !canOutdent) return;
+    const btnRow = container.createDiv({ cls: "kanban-matsuo-indent-buttons" });
+    if (canOutdent) {
+      const outdentBtn = btnRow.createEl("button", {
+        cls: "kanban-matsuo-indent-btn clickable-icon",
+        attr: { "aria-label": t("card.outdent"), "data-tooltip-position": "top" }
+      });
+      (0, import_obsidian.setIcon)(outdentBtn, "arrow-left");
+      outdentBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.outdentItem(item, lane);
+      });
+    }
+    if (canIndent) {
+      const indentBtn = btnRow.createEl("button", {
+        cls: "kanban-matsuo-indent-btn clickable-icon",
+        attr: { "aria-label": t("card.indent"), "data-tooltip-position": "top" }
+      });
+      (0, import_obsidian.setIcon)(indentBtn, "arrow-right");
+      indentBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.indentItem(item, lane);
+      });
+    }
+  }
+  /**
+   * Find the array (lane.items or some parent's .children) that directly contains this item.
+   */
+  findParentList(items, target) {
+    if (items.includes(target)) return items;
+    for (const item of items) {
+      const found = this.findParentList(item.children, target);
+      if (found) return found;
+    }
+    return null;
+  }
+  /**
+   * Indent: move item to be a child of the sibling directly above.
+   */
+  indentItem(item, lane) {
+    const list = this.findParentList(lane.items, item);
+    if (!list) return;
+    const idx = list.indexOf(item);
+    if (idx <= 0) return;
+    const newParent = list[idx - 1];
+    list.splice(idx, 1);
+    newParent.children.push(item);
+    this.render();
+    this.scheduleSave();
+  }
+  /**
+   * Outdent: move item from parent's children to grandparent's list, after the parent.
+   */
+  outdentItem(item, lane) {
+    const parentInfo = this.findParentItem(lane.items, item);
+    if (!parentInfo) return;
+    const { parent, grandparentList } = parentInfo;
+    const childIdx = parent.children.indexOf(item);
+    if (childIdx < 0) return;
+    parent.children.splice(childIdx, 1);
+    const parentIdx = grandparentList.indexOf(parent);
+    grandparentList.splice(parentIdx + 1, 0, item);
+    this.render();
+    this.scheduleSave();
+  }
+  /**
+   * Find the parent item and the grandparent list for an item.
+   */
+  findParentItem(items, target, grandparentList) {
+    for (const item of items) {
+      if (item.children.includes(target)) {
+        return { parent: item, grandparentList: grandparentList || items };
+      }
+      const found = this.findParentItem(item.children, target, items);
+      if (found) return found;
+    }
+    return null;
   }
   countChildren(children) {
     let done = 0, total = 0;
