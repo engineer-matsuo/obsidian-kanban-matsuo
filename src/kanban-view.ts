@@ -535,15 +535,16 @@ export class KanbanView extends ItemView {
 	 * Outdent: promote this card to the parent's level.
 	 */
 	private renderIndentButtons(container: HTMLElement, item: KanbanItem, lane: KanbanLane, depth: number): void {
-		// Find the sibling list this item belongs to
 		const siblingList = this.findParentList(lane.items, item);
 		if (!siblingList) return;
 
 		const idx = siblingList.indexOf(item);
-		const canIndent = idx > 0; // Has a sibling above to become parent
-		const canOutdent = depth > 0; // Is a child, can promote
-
-		if (!canIndent && !canOutdent) return;
+		// Can indent: has a sibling above in the same list to become its child
+		const canIndent = idx > 0;
+		// Can also "deep indent": even if idx===0, if we're a child, we can re-indent
+		// under the sibling above us in the flat view (our parent's previous sibling's last child)
+		const canDeepIndent = !canIndent && depth > 0 && this.canDeepIndent(item, lane);
+		const canOutdent = depth > 0;
 
 		const btnRow = container.createDiv({ cls: 'kanban-matsuo-indent-buttons' });
 
@@ -559,7 +560,7 @@ export class KanbanView extends ItemView {
 			});
 		}
 
-		if (canIndent) {
+		if (canIndent || canDeepIndent) {
 			const indentBtn = btnRow.createEl('button', {
 				cls: 'kanban-matsuo-indent-btn clickable-icon',
 				attr: { 'aria-label': t('card.indent'), 'data-tooltip-position': 'top' },
@@ -570,6 +571,19 @@ export class KanbanView extends ItemView {
 				this.indentItem(item, lane);
 			});
 		}
+	}
+
+	/**
+	 * Check if a deep indent is possible: the item is at idx 0 in its parent's children,
+	 * but the parent has a sibling above whose last child can adopt this item.
+	 */
+	private canDeepIndent(item: KanbanItem, lane: KanbanLane): boolean {
+		const parentInfo = this.findParentItem(lane.items, item);
+		if (!parentInfo) return false;
+		const { parent, grandparentList } = parentInfo;
+		const parentIdx = grandparentList.indexOf(parent);
+		// Parent must have a sibling above it
+		return parentIdx > 0;
 	}
 
 	/**
@@ -586,16 +600,39 @@ export class KanbanView extends ItemView {
 
 	/**
 	 * Indent: move item to be a child of the sibling directly above.
+	 * If no sibling above (idx===0), do a deep indent: outdent first, then indent under the new sibling above.
 	 */
 	private indentItem(item: KanbanItem, lane: KanbanLane): void {
 		const list = this.findParentList(lane.items, item);
 		if (!list) return;
 		const idx = list.indexOf(item);
-		if (idx <= 0) return;
 
-		const newParent = list[idx - 1];
-		list.splice(idx, 1);
-		newParent.children.push(item);
+		if (idx > 0) {
+			// Normal indent: become child of sibling above
+			const newParent = list[idx - 1];
+			list.splice(idx, 1);
+			newParent.children.push(item);
+		} else {
+			// Deep indent: first outdent to parent level, which places us after parent,
+			// then indent under what is now the sibling above (the former parent).
+			const parentInfo = this.findParentItem(lane.items, item);
+			if (!parentInfo) return;
+
+			const { parent, grandparentList } = parentInfo;
+			const childIdx = parent.children.indexOf(item);
+			if (childIdx < 0) return;
+
+			// Remove from parent's children
+			parent.children.splice(childIdx, 1);
+
+			// Find the sibling above parent in grandparent list
+			const parentIdx = grandparentList.indexOf(parent);
+			if (parentIdx <= 0) return;
+
+			const newParent = grandparentList[parentIdx - 1];
+			newParent.children.push(item);
+		}
+
 		this.render();
 		this.scheduleSave();
 	}

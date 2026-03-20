@@ -1035,8 +1035,8 @@ var KanbanView = class extends import_obsidian.ItemView {
     if (!siblingList) return;
     const idx = siblingList.indexOf(item);
     const canIndent = idx > 0;
+    const canDeepIndent = !canIndent && depth > 0 && this.canDeepIndent(item, lane);
     const canOutdent = depth > 0;
-    if (!canIndent && !canOutdent) return;
     const btnRow = container.createDiv({ cls: "kanban-matsuo-indent-buttons" });
     if (canOutdent) {
       const outdentBtn = btnRow.createEl("button", {
@@ -1049,7 +1049,7 @@ var KanbanView = class extends import_obsidian.ItemView {
         this.outdentItem(item, lane);
       });
     }
-    if (canIndent) {
+    if (canIndent || canDeepIndent) {
       const indentBtn = btnRow.createEl("button", {
         cls: "kanban-matsuo-indent-btn clickable-icon",
         attr: { "aria-label": t("card.indent"), "data-tooltip-position": "top" }
@@ -1060,6 +1060,17 @@ var KanbanView = class extends import_obsidian.ItemView {
         this.indentItem(item, lane);
       });
     }
+  }
+  /**
+   * Check if a deep indent is possible: the item is at idx 0 in its parent's children,
+   * but the parent has a sibling above whose last child can adopt this item.
+   */
+  canDeepIndent(item, lane) {
+    const parentInfo = this.findParentItem(lane.items, item);
+    if (!parentInfo) return false;
+    const { parent, grandparentList } = parentInfo;
+    const parentIdx = grandparentList.indexOf(parent);
+    return parentIdx > 0;
   }
   /**
    * Find the array (lane.items or some parent's .children) that directly contains this item.
@@ -1074,15 +1085,28 @@ var KanbanView = class extends import_obsidian.ItemView {
   }
   /**
    * Indent: move item to be a child of the sibling directly above.
+   * If no sibling above (idx===0), do a deep indent: outdent first, then indent under the new sibling above.
    */
   indentItem(item, lane) {
     const list = this.findParentList(lane.items, item);
     if (!list) return;
     const idx = list.indexOf(item);
-    if (idx <= 0) return;
-    const newParent = list[idx - 1];
-    list.splice(idx, 1);
-    newParent.children.push(item);
+    if (idx > 0) {
+      const newParent = list[idx - 1];
+      list.splice(idx, 1);
+      newParent.children.push(item);
+    } else {
+      const parentInfo = this.findParentItem(lane.items, item);
+      if (!parentInfo) return;
+      const { parent, grandparentList } = parentInfo;
+      const childIdx = parent.children.indexOf(item);
+      if (childIdx < 0) return;
+      parent.children.splice(childIdx, 1);
+      const parentIdx = grandparentList.indexOf(parent);
+      if (parentIdx <= 0) return;
+      const newParent = grandparentList[parentIdx - 1];
+      newParent.children.push(item);
+    }
     this.render();
     this.scheduleSave();
   }
