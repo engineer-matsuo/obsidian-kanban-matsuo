@@ -50,8 +50,8 @@ export class KanbanView extends ItemView {
 	private filterMode: FilterMode = 'none';
 	private filterValue = '';
 
-	// External change detection
-	private ignoreNextModify = false;
+	// External change detection (counter to handle concurrent saves)
+	private ignoreModifyCount = 0;
 
 	constructor(leaf: WorkspaceLeaf, plugin: KanbanPlugin) {
 		super(leaf);
@@ -77,8 +77,8 @@ export class KanbanView extends ItemView {
 		// File change detection via registerEvent (auto-cleanup on view close)
 		this.registerEvent(
 			this.app.vault.on('modify', async (file) => {
-				if (this.ignoreNextModify) {
-					this.ignoreNextModify = false;
+				if (this.ignoreModifyCount > 0) {
+					this.ignoreModifyCount--;
 					return;
 				}
 				if (file instanceof TFile && this.file && file.path === this.file.path) {
@@ -136,7 +136,7 @@ export class KanbanView extends ItemView {
 	async saveBoard(board: KanbanBoard): Promise<void> {
 		this.board = board;
 		if (!this.file) return;
-		this.ignoreNextModify = true;
+		this.ignoreModifyCount++;
 		await this.app.vault.process(this.file, () => boardToMarkdown(board));
 	}
 
@@ -156,7 +156,7 @@ export class KanbanView extends ItemView {
 
 	private async save(): Promise<void> {
 		if (!this.board || !this.file) return;
-		this.ignoreNextModify = true;
+		this.ignoreModifyCount++;
 		const board = this.board;
 		await this.app.vault.process(this.file, () => boardToMarkdown(board));
 	}
@@ -465,7 +465,11 @@ export class KanbanView extends ItemView {
 		// Title with Markdown rendering (wikilinks)
 		const titleEl = bodyEl.createDiv({ cls: 'kanban-matsuo-card-title' });
 		const displayTitle = item.title.replace(/#[^\s#]+/g, '').replace(/@\{\d{4}-\d{2}-\d{2}\}/g, '').trim() || item.title;
-		MarkdownRenderer.render(this.app, displayTitle, titleEl, this.file?.path || '', this);
+		if (this.file) {
+			MarkdownRenderer.render(this.app, displayTitle, titleEl, this.file.path, this);
+		} else {
+			titleEl.setText(displayTitle);
+		}
 
 		// Hover preview for wikilinks
 		titleEl.querySelectorAll('a.internal-link').forEach((linkEl) => {
@@ -617,25 +621,52 @@ export class KanbanView extends ItemView {
 
 	private getDragAfterElement(container: HTMLElement, y: number): HTMLElement | null {
 		const cards = Array.from(container.querySelectorAll('.kanban-matsuo-card:not(.kanban-matsuo-card-dragging)')) as HTMLElement[];
-		let closest: { offset: number; element: HTMLElement | null } = { offset: Number.POSITIVE_INFINITY, element: null };
-		for (const card of cards) {
-			const box = card.getBoundingClientRect();
-			const offset = y - box.top - box.height / 2;
-			if (offset < 0 && offset > -closest.offset) closest = { offset: -offset, element: card };
-		}
-		return closest.element;
+		return cards.reduce<{ offset: number; el: HTMLElement | null }>(
+			(acc, card) => {
+				const box = card.getBoundingClientRect();
+				const offset = y - box.top - box.height / 2;
+				if (offset < 0 && offset > acc.offset) return { offset, el: card };
+				return acc;
+			},
+			{ offset: Number.NEGATIVE_INFINITY, el: null },
+		).el;
 	}
 
 	private handleDrop(targetLane: KanbanLane, listEl: HTMLElement): void {
 		if (!this.draggedItem || !this.draggedFromLane || !this.board) return;
 		const sourceIndex = this.draggedFromLane.items.indexOf(this.draggedItem);
 		if (sourceIndex >= 0) this.draggedFromLane.items.splice(sourceIndex, 1);
-		let targetIndex = targetLane.items.filter((i) => !i.archived).length;
+
+		// Map DOM placeholder position to actual items array index (skipping archived)
+		const activeItems = targetLane.items.filter((i) => !i.archived);
+		let targetIndex = activeItems.length;
 		if (this.dragPlaceholder) {
 			const pi = Array.from(listEl.children).indexOf(this.dragPlaceholder);
-			if (pi >= 0) targetIndex = pi;
+			if (pi >= 0) {
+				// Count how many visible cards are before the placeholder
+				let visibleBefore = 0;
+				for (const child of Array.from(listEl.children)) {
+					if (child === this.dragPlaceholder) break;
+					if (child.classList.contains('kanban-matsuo-card')) visibleBefore++;
+				}
+				targetIndex = visibleBefore;
+			}
 		}
-		targetLane.items.splice(targetIndex, 0, this.draggedItem);
+
+		// Convert active-index to real index in items array
+		let realIndex = targetLane.items.length;
+		let activeCount = 0;
+		for (let i = 0; i < targetLane.items.length; i++) {
+			if (!targetLane.items[i].archived) {
+				if (activeCount === targetIndex) {
+					realIndex = i;
+					break;
+				}
+				activeCount++;
+			}
+		}
+
+		targetLane.items.splice(realIndex, 0, this.draggedItem);
 		this.removePlaceholder(); this.render(); this.scheduleSave();
 	}
 

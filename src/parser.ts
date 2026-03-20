@@ -69,7 +69,7 @@ export function extractDate(text: string): string | null {
 /**
  * Parse Markdown content into a KanbanBoard.
  *
- * Expected format:
+ * Format:
  * ---
  * kanban-plugin: kanban-matsuo
  * lane-width: 272
@@ -78,8 +78,15 @@ export function extractDate(text: string): string | null {
  * ## Lane Title
  *
  * - [ ] Card title #tag @{2024-01-15}
+ *     Body line 1
+ *     Body line 2
  * - [x] Completed card
- * - Card without checkbox
+ *
+ * ## %% Archive %%
+ *
+ * ### Lane Title
+ *
+ * - [x] Archived card
  */
 export function parseMarkdown(content: string): KanbanBoard {
 	const board: KanbanBoard = {
@@ -89,7 +96,9 @@ export function parseMarkdown(content: string): KanbanBoard {
 
 	const lines = content.split('\n');
 	let currentLane: KanbanLane | null = null;
+	let currentItem: KanbanItem | null = null;
 	let inFrontmatter = false;
+	let inArchive = false;
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
@@ -109,11 +118,53 @@ export function parseMarkdown(content: string): KanbanBoard {
 			continue;
 		}
 
+		// Archive section
+		if (line.match(/^##\s+%%\s*Archive\s*%%/i)) {
+			inArchive = true;
+			currentLane = null;
+			currentItem = null;
+			continue;
+		}
+
+		if (inArchive) {
+			// ### Lane Title inside archive
+			const archiveLaneMatch = line.match(/^###\s+(.+)$/);
+			if (archiveLaneMatch) {
+				const laneTitle = archiveLaneMatch[1].trim();
+				currentLane = board.lanes.find((l) => l.title === laneTitle) || null;
+				if (!currentLane) {
+					currentLane = createLane(laneTitle);
+					board.lanes.push(currentLane);
+				}
+				currentItem = null;
+				continue;
+			}
+
+			const itemMatch = line.match(/^[-*]\s+(.+)$/);
+			if (itemMatch && currentLane) {
+				const item = parseItemText(itemMatch[1]);
+				item.archived = true;
+				currentLane.items.push(item);
+				currentItem = item;
+				continue;
+			}
+
+			// Body lines for archived items (indented)
+			if (currentItem && line.match(/^\s{4}/) && line.trim().length > 0) {
+				if (currentItem.body) currentItem.body += '\n';
+				currentItem.body += line.trim();
+				continue;
+			}
+
+			continue;
+		}
+
 		// Lane heading (## Title)
 		const headingMatch = line.match(/^##\s+(.+)$/);
 		if (headingMatch) {
 			currentLane = createLane(headingMatch[1]);
 			board.lanes.push(currentLane);
+			currentItem = null;
 			continue;
 		}
 
@@ -123,7 +174,20 @@ export function parseMarkdown(content: string): KanbanBoard {
 			const rawText = itemMatch[1];
 			const item = parseItemText(rawText);
 			currentLane.items.push(item);
+			currentItem = item;
 			continue;
+		}
+
+		// Body lines (indented with 4 spaces or tab, belongs to current item)
+		if (currentItem && line.match(/^\s{4}|\t/) && line.trim().length > 0) {
+			if (currentItem.body) currentItem.body += '\n';
+			currentItem.body += line.trim();
+			continue;
+		}
+
+		// Empty line resets current item (body collection)
+		if (line.trim() === '') {
+			currentItem = null;
 		}
 	}
 
@@ -176,6 +240,7 @@ function parseItemText(rawText: string): KanbanItem {
 
 /**
  * Convert a KanbanBoard back to Markdown string.
+ * Active and archived items are both persisted.
  */
 export function boardToMarkdown(board: KanbanBoard): string {
 	const lines: string[] = [];
@@ -190,7 +255,7 @@ export function boardToMarkdown(board: KanbanBoard): string {
 	lines.push('---');
 	lines.push('');
 
-	// Lanes
+	// Active items per lane
 	for (const lane of board.lanes) {
 		lines.push(`## ${lane.title}`);
 		lines.push('');
@@ -203,11 +268,50 @@ export function boardToMarkdown(board: KanbanBoard): string {
 				line += item.checked ? '[x] ' : '[ ] ';
 			}
 			line += item.title;
-
 			lines.push(line);
+
+			// Body as indented lines
+			if (item.body) {
+				for (const bodyLine of item.body.split('\n')) {
+					lines.push(`    ${bodyLine}`);
+				}
+			}
 		}
 
 		lines.push('');
+	}
+
+	// Archive section (only if there are archived items)
+	const archivedByLane = new Map<string, KanbanItem[]>();
+	for (const lane of board.lanes) {
+		const archived = lane.items.filter((i) => i.archived);
+		if (archived.length > 0) {
+			archivedByLane.set(lane.title, archived);
+		}
+	}
+
+	if (archivedByLane.size > 0) {
+		lines.push('## %% Archive %%');
+		lines.push('');
+
+		for (const [laneTitle, items] of archivedByLane) {
+			lines.push(`### ${laneTitle}`);
+			lines.push('');
+			for (const item of items) {
+				let line = '- ';
+				if (board.settings.showCheckboxes) {
+					line += item.checked ? '[x] ' : '[ ] ';
+				}
+				line += item.title;
+				lines.push(line);
+				if (item.body) {
+					for (const bodyLine of item.body.split('\n')) {
+						lines.push(`    ${bodyLine}`);
+					}
+				}
+			}
+			lines.push('');
+		}
 	}
 
 	return lines.join('\n');

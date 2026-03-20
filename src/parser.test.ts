@@ -229,14 +229,20 @@ describe('boardToMarkdown', () => {
 		expect(md).toContain('[x] Completed');
 	});
 
-	it('excludes archived items', () => {
+	it('moves archived items to Archive section, not in active lane', () => {
 		const board = createBoard(['Lane']);
 		const item = createItem('Archived');
 		item.archived = true;
 		board.lanes[0].items.push(item);
 
 		const md = boardToMarkdown(board);
-		expect(md).not.toContain('Archived');
+		// Should NOT appear under the active lane heading
+		const laneSection = md.split('## %% Archive %%')[0];
+		const laneLines = laneSection.split('\n').filter((l) => l.startsWith('- '));
+		expect(laneLines).toHaveLength(0);
+		// Should appear in archive section
+		expect(md).toContain('## %% Archive %%');
+		expect(md).toContain('Archived');
 	});
 
 	it('omits checkboxes when showCheckboxes is false', () => {
@@ -257,6 +263,224 @@ describe('boardToMarkdown', () => {
 		const md = boardToMarkdown(board);
 		expect(md).toContain('lane-width: 400');
 		expect(md).toContain('show-tags: false');
+	});
+});
+
+describe('boardToMarkdown - edge cases', () => {
+	it('handles multiline card titles', () => {
+		const board = createBoard(['Lane']);
+		const item = createItem('Line one\nLine two');
+		board.lanes[0].items.push(item);
+		const md = boardToMarkdown(board);
+		expect(md).toContain('Line one');
+	});
+
+	it('handles cards with both tags and dates', () => {
+		const board = createBoard(['Lane']);
+		const item = createItem('Task #urgent @{2026-06-01}');
+		board.lanes[0].items.push(item);
+		const md = boardToMarkdown(board);
+		expect(md).toContain('#urgent');
+		expect(md).toContain('@{2026-06-01}');
+	});
+
+	it('handles empty lane with no items', () => {
+		const board = createBoard(['Empty']);
+		const md = boardToMarkdown(board);
+		expect(md).toContain('## Empty');
+		expect(md).not.toContain('- ');
+	});
+
+	it('preserves multiple lanes order', () => {
+		const board = createBoard(['Alpha', 'Beta', 'Gamma', 'Delta']);
+		const md = boardToMarkdown(board);
+		const alphaIdx = md.indexOf('## Alpha');
+		const betaIdx = md.indexOf('## Beta');
+		const gammaIdx = md.indexOf('## Gamma');
+		const deltaIdx = md.indexOf('## Delta');
+		expect(alphaIdx).toBeLessThan(betaIdx);
+		expect(betaIdx).toBeLessThan(gammaIdx);
+		expect(gammaIdx).toBeLessThan(deltaIdx);
+	});
+});
+
+describe('parseMarkdown - edge cases', () => {
+	it('handles wikilinks in card titles', () => {
+		const md = `## Lane
+
+- [ ] Check [[My Note]] for details
+`;
+		const board = parseMarkdown(md);
+		expect(board.lanes[0].items[0].title).toContain('[[My Note]]');
+	});
+
+	it('handles cards with multiple tags', () => {
+		const md = `## Lane
+
+- [ ] Task #bug #critical #p0
+`;
+		const board = parseMarkdown(md);
+		const item = board.lanes[0].items[0];
+		expect(item.tags).toEqual(['bug', 'critical', 'p0']);
+	});
+
+	it('handles special characters in lane titles', () => {
+		const md = `## 🚀 Sprint #3 - Week 12
+
+- [ ] Item
+`;
+		const board = parseMarkdown(md);
+		expect(board.lanes[0].title).toBe('🚀 Sprint #3 - Week 12');
+	});
+
+	it('ignores non-list content between lanes', () => {
+		const md = `## Lane 1
+
+Some description text
+
+- [ ] Task 1
+
+## Lane 2
+
+- [ ] Task 2
+`;
+		const board = parseMarkdown(md);
+		expect(board.lanes).toHaveLength(2);
+		expect(board.lanes[0].items).toHaveLength(1);
+		expect(board.lanes[1].items).toHaveLength(1);
+	});
+});
+
+describe('boardToMarkdown - archive persistence', () => {
+	it('persists archived items in Archive section', () => {
+		const board = createBoard(['To Do']);
+		const item = createItem('Archived task');
+		item.archived = true;
+		board.lanes[0].items.push(item);
+
+		const md = boardToMarkdown(board);
+		expect(md).toContain('## %% Archive %%');
+		expect(md).toContain('### To Do');
+		expect(md).toContain('Archived task');
+	});
+
+	it('does not show Archive section when no archived items', () => {
+		const board = createBoard(['To Do']);
+		board.lanes[0].items.push(createItem('Active'));
+
+		const md = boardToMarkdown(board);
+		expect(md).not.toContain('Archive');
+	});
+
+	it('separates active and archived items', () => {
+		const board = createBoard(['Lane']);
+		board.lanes[0].items.push(createItem('Active'));
+		const archived = createItem('Old');
+		archived.archived = true;
+		board.lanes[0].items.push(archived);
+
+		const md = boardToMarkdown(board);
+		const archiveIdx = md.indexOf('%% Archive %%');
+		const activeIdx = md.indexOf('Active');
+		const oldIdx = md.indexOf('Old');
+		expect(activeIdx).toBeLessThan(archiveIdx);
+		expect(oldIdx).toBeGreaterThan(archiveIdx);
+	});
+});
+
+describe('boardToMarkdown - body persistence', () => {
+	it('persists body as indented lines', () => {
+		const board = createBoard(['Lane']);
+		const item = createItem('Task');
+		item.body = 'Line 1\nLine 2';
+		board.lanes[0].items.push(item);
+
+		const md = boardToMarkdown(board);
+		expect(md).toContain('    Line 1');
+		expect(md).toContain('    Line 2');
+	});
+
+	it('does not add indented lines for empty body', () => {
+		const board = createBoard(['Lane']);
+		board.lanes[0].items.push(createItem('Task'));
+
+		const md = boardToMarkdown(board);
+		const lines = md.split('\n');
+		const taskLine = lines.findIndex((l) => l.includes('Task'));
+		// Next non-empty line should not be indented
+		const nextLine = lines[taskLine + 1];
+		if (nextLine && nextLine.trim()) {
+			expect(nextLine.startsWith('    ')).toBe(false);
+		}
+	});
+});
+
+describe('parseMarkdown - body parsing', () => {
+	it('parses indented body lines', () => {
+		const md = `## Lane
+
+- [ ] Task title
+    Body line 1
+    Body line 2
+
+`;
+		const board = parseMarkdown(md);
+		expect(board.lanes[0].items[0].body).toBe('Body line 1\nBody line 2');
+	});
+
+	it('handles card with no body', () => {
+		const md = `## Lane
+
+- [ ] Simple task
+`;
+		const board = parseMarkdown(md);
+		expect(board.lanes[0].items[0].body).toBe('');
+	});
+});
+
+describe('parseMarkdown - archive parsing', () => {
+	it('parses archived items from Archive section', () => {
+		const md = `## To Do
+
+- [ ] Active task
+
+## %% Archive %%
+
+### To Do
+
+- [x] Old task
+`;
+		const board = parseMarkdown(md);
+		expect(board.lanes[0].items).toHaveLength(2);
+		expect(board.lanes[0].items[0].archived).toBe(false);
+		expect(board.lanes[0].items[1].archived).toBe(true);
+		expect(board.lanes[0].items[1].title).toBe('Old task');
+	});
+});
+
+describe('round-trip with body and archive', () => {
+	it('preserves body through round-trip', () => {
+		const board = createBoard(['Lane']);
+		const item = createItem('Task');
+		item.body = 'Description text';
+		board.lanes[0].items.push(item);
+
+		const md = boardToMarkdown(board);
+		const parsed = parseMarkdown(md);
+		expect(parsed.lanes[0].items[0].body).toBe('Description text');
+	});
+
+	it('preserves archived items through round-trip', () => {
+		const board = createBoard(['Done']);
+		const archived = createItem('Old task');
+		archived.archived = true;
+		archived.checked = true;
+		board.lanes[0].items.push(archived);
+
+		const md = boardToMarkdown(board);
+		const parsed = parseMarkdown(md);
+		expect(parsed.lanes[0].items[0].archived).toBe(true);
+		expect(parsed.lanes[0].items[0].checked).toBe(true);
 	});
 });
 

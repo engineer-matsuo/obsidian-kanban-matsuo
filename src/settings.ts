@@ -15,8 +15,6 @@ export class KanbanSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		// Language setting (first, so user can switch before reading the rest)
-		new Setting(containerEl).setName(t('settings.language')).setHeading();
-
 		new Setting(containerEl)
 			.setName(t('settings.language'))
 			.setDesc(t('settings.language-desc'))

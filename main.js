@@ -100,7 +100,9 @@ function parseMarkdown(content) {
   };
   const lines = content.split("\n");
   let currentLane = null;
+  let currentItem = null;
   let inFrontmatter = false;
+  let inArchive = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (i === 0 && line.trim() === "---") {
@@ -115,10 +117,44 @@ function parseMarkdown(content) {
       parseFrontmatterLine(line, board.settings);
       continue;
     }
+    if (line.match(/^##\s+%%\s*Archive\s*%%/i)) {
+      inArchive = true;
+      currentLane = null;
+      currentItem = null;
+      continue;
+    }
+    if (inArchive) {
+      const archiveLaneMatch = line.match(/^###\s+(.+)$/);
+      if (archiveLaneMatch) {
+        const laneTitle = archiveLaneMatch[1].trim();
+        currentLane = board.lanes.find((l) => l.title === laneTitle) || null;
+        if (!currentLane) {
+          currentLane = createLane(laneTitle);
+          board.lanes.push(currentLane);
+        }
+        currentItem = null;
+        continue;
+      }
+      const itemMatch2 = line.match(/^[-*]\s+(.+)$/);
+      if (itemMatch2 && currentLane) {
+        const item = parseItemText(itemMatch2[1]);
+        item.archived = true;
+        currentLane.items.push(item);
+        currentItem = item;
+        continue;
+      }
+      if (currentItem && line.match(/^\s{4}/) && line.trim().length > 0) {
+        if (currentItem.body) currentItem.body += "\n";
+        currentItem.body += line.trim();
+        continue;
+      }
+      continue;
+    }
     const headingMatch = line.match(/^##\s+(.+)$/);
     if (headingMatch) {
       currentLane = createLane(headingMatch[1]);
       board.lanes.push(currentLane);
+      currentItem = null;
       continue;
     }
     const itemMatch = line.match(/^[-*]\s+(.+)$/);
@@ -126,7 +162,16 @@ function parseMarkdown(content) {
       const rawText = itemMatch[1];
       const item = parseItemText(rawText);
       currentLane.items.push(item);
+      currentItem = item;
       continue;
+    }
+    if (currentItem && line.match(/^\s{4}|\t/) && line.trim().length > 0) {
+      if (currentItem.body) currentItem.body += "\n";
+      currentItem.body += line.trim();
+      continue;
+    }
+    if (line.trim() === "") {
+      currentItem = null;
     }
   }
   return board;
@@ -183,8 +228,42 @@ function boardToMarkdown(board) {
       }
       line += item.title;
       lines.push(line);
+      if (item.body) {
+        for (const bodyLine of item.body.split("\n")) {
+          lines.push(`    ${bodyLine}`);
+        }
+      }
     }
     lines.push("");
+  }
+  const archivedByLane = /* @__PURE__ */ new Map();
+  for (const lane of board.lanes) {
+    const archived = lane.items.filter((i) => i.archived);
+    if (archived.length > 0) {
+      archivedByLane.set(lane.title, archived);
+    }
+  }
+  if (archivedByLane.size > 0) {
+    lines.push("## %% Archive %%");
+    lines.push("");
+    for (const [laneTitle, items] of archivedByLane) {
+      lines.push(`### ${laneTitle}`);
+      lines.push("");
+      for (const item of items) {
+        let line = "- ";
+        if (board.settings.showCheckboxes) {
+          line += item.checked ? "[x] " : "[ ] ";
+        }
+        line += item.title;
+        lines.push(line);
+        if (item.body) {
+          for (const bodyLine of item.body.split("\n")) {
+            lines.push(`    ${bodyLine}`);
+          }
+        }
+      }
+      lines.push("");
+    }
   }
   return lines.join("\n");
 }
@@ -454,8 +533,8 @@ var KanbanView = class extends import_obsidian.ItemView {
     // Filter state
     this.filterMode = "none";
     this.filterValue = "";
-    // External change detection
-    this.ignoreNextModify = false;
+    // External change detection (counter to handle concurrent saves)
+    this.ignoreModifyCount = 0;
     this.plugin = plugin;
   }
   getViewType() {
@@ -472,8 +551,8 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.contentEl.addClass("kanban-matsuo-container");
     this.registerEvent(
       this.app.vault.on("modify", async (file) => {
-        if (this.ignoreNextModify) {
-          this.ignoreNextModify = false;
+        if (this.ignoreModifyCount > 0) {
+          this.ignoreModifyCount--;
           return;
         }
         if (file instanceof import_obsidian.TFile && this.file && file.path === this.file.path) {
@@ -524,7 +603,7 @@ var KanbanView = class extends import_obsidian.ItemView {
   async saveBoard(board) {
     this.board = board;
     if (!this.file) return;
-    this.ignoreNextModify = true;
+    this.ignoreModifyCount++;
     await this.app.vault.process(this.file, () => boardToMarkdown(board));
   }
   /** Re-render the view (for use by commands in main.ts) */
@@ -541,7 +620,7 @@ var KanbanView = class extends import_obsidian.ItemView {
   }
   async save() {
     if (!this.board || !this.file) return;
-    this.ignoreNextModify = true;
+    this.ignoreModifyCount++;
     const board = this.board;
     await this.app.vault.process(this.file, () => boardToMarkdown(board));
   }
@@ -788,7 +867,6 @@ var KanbanView = class extends import_obsidian.ItemView {
     }
   }
   renderCard(container, item, lane) {
-    var _a;
     const cardEl = container.createDiv({
       cls: "kanban-matsuo-card",
       attr: { "data-item-id": item.id, draggable: "true", role: "listitem", tabindex: "0", "aria-label": item.title }
@@ -842,10 +920,14 @@ var KanbanView = class extends import_obsidian.ItemView {
     const bodyEl = cardEl.createDiv({ cls: "kanban-matsuo-card-body" });
     const titleEl = bodyEl.createDiv({ cls: "kanban-matsuo-card-title" });
     const displayTitle = item.title.replace(/#[^\s#]+/g, "").replace(/@\{\d{4}-\d{2}-\d{2}\}/g, "").trim() || item.title;
-    import_obsidian.MarkdownRenderer.render(this.app, displayTitle, titleEl, ((_a = this.file) == null ? void 0 : _a.path) || "", this);
+    if (this.file) {
+      import_obsidian.MarkdownRenderer.render(this.app, displayTitle, titleEl, this.file.path, this);
+    } else {
+      titleEl.setText(displayTitle);
+    }
     titleEl.querySelectorAll("a.internal-link").forEach((linkEl) => {
       linkEl.addEventListener("mouseover", (e) => {
-        var _a2;
+        var _a;
         const href = linkEl.getAttribute("href");
         if (href) {
           this.app.workspace.trigger("hover-link", {
@@ -854,7 +936,7 @@ var KanbanView = class extends import_obsidian.ItemView {
             hoverParent: this,
             targetEl: linkEl,
             linktext: href,
-            sourcePath: ((_a2 = this.file) == null ? void 0 : _a2.path) || ""
+            sourcePath: ((_a = this.file) == null ? void 0 : _a.path) || ""
           });
         }
       });
@@ -1027,24 +1109,45 @@ var KanbanView = class extends import_obsidian.ItemView {
   }
   getDragAfterElement(container, y) {
     const cards = Array.from(container.querySelectorAll(".kanban-matsuo-card:not(.kanban-matsuo-card-dragging)"));
-    let closest = { offset: Number.POSITIVE_INFINITY, element: null };
-    for (const card of cards) {
-      const box = card.getBoundingClientRect();
-      const offset = y - box.top - box.height / 2;
-      if (offset < 0 && offset > -closest.offset) closest = { offset: -offset, element: card };
-    }
-    return closest.element;
+    return cards.reduce(
+      (acc, card) => {
+        const box = card.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > acc.offset) return { offset, el: card };
+        return acc;
+      },
+      { offset: Number.NEGATIVE_INFINITY, el: null }
+    ).el;
   }
   handleDrop(targetLane, listEl) {
     if (!this.draggedItem || !this.draggedFromLane || !this.board) return;
     const sourceIndex = this.draggedFromLane.items.indexOf(this.draggedItem);
     if (sourceIndex >= 0) this.draggedFromLane.items.splice(sourceIndex, 1);
-    let targetIndex = targetLane.items.filter((i) => !i.archived).length;
+    const activeItems = targetLane.items.filter((i) => !i.archived);
+    let targetIndex = activeItems.length;
     if (this.dragPlaceholder) {
       const pi = Array.from(listEl.children).indexOf(this.dragPlaceholder);
-      if (pi >= 0) targetIndex = pi;
+      if (pi >= 0) {
+        let visibleBefore = 0;
+        for (const child of Array.from(listEl.children)) {
+          if (child === this.dragPlaceholder) break;
+          if (child.classList.contains("kanban-matsuo-card")) visibleBefore++;
+        }
+        targetIndex = visibleBefore;
+      }
     }
-    targetLane.items.splice(targetIndex, 0, this.draggedItem);
+    let realIndex = targetLane.items.length;
+    let activeCount = 0;
+    for (let i = 0; i < targetLane.items.length; i++) {
+      if (!targetLane.items[i].archived) {
+        if (activeCount === targetIndex) {
+          realIndex = i;
+          break;
+        }
+        activeCount++;
+      }
+    }
+    targetLane.items.splice(realIndex, 0, this.draggedItem);
     this.removePlaceholder();
     this.render();
     this.scheduleSave();
@@ -1315,7 +1418,6 @@ var KanbanSettingTab = class extends import_obsidian2.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian2.Setting(containerEl).setName(t("settings.language")).setHeading();
     new import_obsidian2.Setting(containerEl).setName(t("settings.language")).setDesc(t("settings.language-desc")).addDropdown(
       (dropdown) => dropdown.addOption("auto", t("settings.language-auto")).addOption("en", "English").addOption("ja", "\u65E5\u672C\u8A9E").setValue(this.plugin.settings.language).onChange(async (value) => {
         this.plugin.settings.language = value;
