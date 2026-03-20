@@ -829,31 +829,185 @@ export class KanbanView extends ItemView {
 			if (dow === 0 || dow === 6) th.addClass('kanban-matsuo-gantt-weekend');
 		}
 
-		// Bars
+		// Bars (interactive)
 		const rightBody = rightTable.createEl('tbody');
 		for (const { item } of flatItems) {
 			const row = rightBody.createEl('tr');
 
-			for (const d of dates) {
-				const cell = row.createEl('td', { cls: 'kanban-matsuo-gantt-cell' });
+			for (let di = 0; di < dates.length; di++) {
+				const d = dates[di];
+				const cell = row.createEl('td', {
+					cls: 'kanban-matsuo-gantt-cell',
+					attr: { 'data-date': d },
+				});
 				if (d === today) cell.addClass('kanban-matsuo-gantt-today');
 				const dow = new Date(d + 'T00:00:00').getDay();
 				if (dow === 0 || dow === 6) cell.addClass('kanban-matsuo-gantt-weekend');
 
 				const start = item.startDate || item.endDate;
 				const end = item.endDate || item.startDate;
-				if (start && end && d >= start && d <= end) {
+				const inRange = start && end && d >= start && d <= end;
+
+				if (inRange) {
 					const bar = cell.createDiv({ cls: 'kanban-matsuo-gantt-bar' });
 					if (item.checked) bar.addClass('kanban-matsuo-gantt-bar-done');
 
-					// First day of bar: show task name
+					// First day: left resize handle + label
 					if (d === start) {
+						bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-left' });
 						const label = item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim();
 						bar.setAttribute('data-label', label);
 					}
+					// Last day: right resize handle
+					if (d === end) {
+						bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-right' });
+					}
+
+					// Drag bar to move entire period
+					this.setupGanttBarDrag(bar, item, dates);
+
+					// Resize handles
+					if (d === start) {
+						const leftHandle = bar.querySelector('.kanban-matsuo-gantt-handle-left') as HTMLElement;
+						if (leftHandle) this.setupGanttResize(leftHandle, item, dates, 'start');
+					}
+					if (d === end) {
+						const rightHandle = bar.querySelector('.kanban-matsuo-gantt-handle-right') as HTMLElement;
+						if (rightHandle) this.setupGanttResize(rightHandle, item, dates, 'end');
+					}
+				} else {
+					// Click empty cell to set date
+					cell.addEventListener('click', () => {
+						if (!item.startDate && !item.endDate) {
+							item.startDate = d;
+							item.endDate = d;
+						} else if (!item.startDate) {
+							item.startDate = d < (item.endDate!) ? d : item.endDate;
+							if (d > item.endDate!) item.endDate = d;
+						} else if (!item.endDate) {
+							item.endDate = d > item.startDate ? d : item.startDate;
+							if (d < item.startDate) item.startDate = d;
+						}
+						this.updateItemTitleDates(item);
+						this.scheduleSave();
+						this.render();
+					});
 				}
 			}
 		}
+	}
+
+	/**
+	 * Setup drag on a gantt bar to move the entire period.
+	 */
+	private setupGanttBarDrag(bar: HTMLElement, item: KanbanItem, dates: string[]): void {
+		let startX = 0;
+		let origStart = '';
+		let origEnd = '';
+
+		bar.addEventListener('mousedown', (e) => {
+			if ((e.target as HTMLElement).classList.contains('kanban-matsuo-gantt-handle-left') ||
+				(e.target as HTMLElement).classList.contains('kanban-matsuo-gantt-handle-right')) return;
+
+			e.preventDefault();
+			e.stopPropagation();
+			startX = e.clientX;
+			origStart = item.startDate || '';
+			origEnd = item.endDate || '';
+
+			const cellWidth = 28;
+
+			const onMouseMove = (ev: MouseEvent) => {
+				const dx = ev.clientX - startX;
+				const dayShift = Math.round(dx / cellWidth);
+				if (dayShift === 0) return;
+
+				const si = dates.indexOf(origStart);
+				const ei = dates.indexOf(origEnd);
+				if (si < 0 || ei < 0) return;
+
+				const newSi = Math.max(0, Math.min(dates.length - 1, si + dayShift));
+				const newEi = Math.max(0, Math.min(dates.length - 1, ei + dayShift));
+
+				item.startDate = dates[newSi];
+				item.endDate = dates[newEi];
+				this.updateItemTitleDates(item);
+				this.render();
+			};
+
+			const onMouseUp = () => {
+				document.removeEventListener('mousemove', onMouseMove);
+				document.removeEventListener('mouseup', onMouseUp);
+				this.scheduleSave();
+			};
+
+			document.addEventListener('mousemove', onMouseMove);
+			document.addEventListener('mouseup', onMouseUp);
+		});
+	}
+
+	/**
+	 * Setup resize handle on gantt bar to change start or end date.
+	 */
+	private setupGanttResize(handle: HTMLElement, item: KanbanItem, dates: string[], edge: 'start' | 'end'): void {
+		handle.addEventListener('mousedown', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+
+			const startX = e.clientX;
+			const origDate = edge === 'start' ? (item.startDate || '') : (item.endDate || '');
+			const cellWidth = 28;
+
+			const onMouseMove = (ev: MouseEvent) => {
+				const dx = ev.clientX - startX;
+				const dayShift = Math.round(dx / cellWidth);
+				if (dayShift === 0) return;
+
+				const origIdx = dates.indexOf(origDate);
+				if (origIdx < 0) return;
+
+				const newIdx = Math.max(0, Math.min(dates.length - 1, origIdx + dayShift));
+				const newDate = dates[newIdx];
+
+				if (edge === 'start') {
+					if (item.endDate && newDate > item.endDate) return;
+					item.startDate = newDate;
+				} else {
+					if (item.startDate && newDate < item.startDate) return;
+					item.endDate = newDate;
+				}
+
+				this.updateItemTitleDates(item);
+				this.render();
+			};
+
+			const onMouseUp = () => {
+				document.removeEventListener('mousemove', onMouseMove);
+				document.removeEventListener('mouseup', onMouseUp);
+				this.scheduleSave();
+			};
+
+			document.addEventListener('mousemove', onMouseMove);
+			document.addEventListener('mouseup', onMouseUp);
+		});
+	}
+
+	/**
+	 * Update item.title to reflect current startDate/endDate.
+	 */
+	private updateItemTitleDates(item: KanbanItem): void {
+		// Remove existing date markers from title
+		let title = item.title.replace(/@\{[^}]*\}/g, '').trim();
+
+		if (item.startDate && item.endDate) {
+			title += ` @{${item.startDate}~${item.endDate}}`;
+		} else if (item.endDate) {
+			title += ` @{${item.endDate}}`;
+		} else if (item.startDate) {
+			title += ` @{${item.startDate}~}`;
+		}
+
+		item.title = title;
 	}
 
 	private flattenForWbs(item: KanbanItem, lane: string, depth: number, out: { item: KanbanItem; lane: string; depth: number }[]): void {

@@ -783,10 +783,19 @@ span.kanban-matsuo-subtask-done {
 	opacity: 0.5;
 }
 
+.kanban-matsuo-gantt-bar {
+	cursor: grab;
+}
+
+.kanban-matsuo-gantt-bar:active {
+	cursor: grabbing;
+	opacity: 1;
+}
+
 .kanban-matsuo-gantt-bar[data-label]::after {
 	content: attr(data-label);
 	position: absolute;
-	left: 4px;
+	left: 12px;
 	top: 50%;
 	transform: translateY(-50%);
 	font-size: 10px;
@@ -795,6 +804,41 @@ span.kanban-matsuo-subtask-done {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	max-width: 200px;
+	pointer-events: none;
+}
+
+/* Resize handles */
+.kanban-matsuo-gantt-handle {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 8px;
+	z-index: 2;
+}
+
+.kanban-matsuo-gantt-handle-left {
+	left: 0;
+	cursor: col-resize;
+	border-radius: 3px 0 0 3px;
+}
+
+.kanban-matsuo-gantt-handle-right {
+	right: 0;
+	cursor: col-resize;
+	border-radius: 0 3px 3px 0;
+}
+
+.kanban-matsuo-gantt-handle:hover {
+	background: rgba(255, 255, 255, 0.3);
+}
+
+/* Empty cell click hint */
+.kanban-matsuo-gantt-cell:not(:has(.kanban-matsuo-gantt-bar)) {
+	cursor: pointer;
+}
+
+.kanban-matsuo-gantt-cell:not(:has(.kanban-matsuo-gantt-bar)):hover {
+	background: color-mix(in srgb, var(--interactive-accent) 15%, transparent);
 }
 
 /* Mobile responsive */
