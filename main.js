@@ -38,7 +38,8 @@ var DEFAULT_PLUGIN_SETTINGS = {
   showCheckboxes: true,
   autoSaveDelay: 500,
   language: "auto",
-  boardTemplatePath: ""
+  boardTemplatePath: "",
+  newlineKey: "shift+enter"
 };
 var DEFAULT_BOARD_SETTINGS = {
   laneWidth: 272,
@@ -271,7 +272,11 @@ var en = {
   "command.create-from-template": "Create board from template",
   "settings.templates": "Templates",
   "settings.board-template": "Board template",
-  "settings.board-template-desc": "Template file path for new boards."
+  "settings.board-template-desc": "Template file path for new boards.",
+  // Input
+  "settings.input": "Input",
+  "settings.newline-key": "Newline key",
+  "settings.newline-key-desc": "Key combination to insert a newline in card text."
 };
 
 // src/lang/ja.ts
@@ -358,7 +363,11 @@ var ja = {
   "command.create-from-template": "\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u304B\u3089\u30DC\u30FC\u30C9\u3092\u4F5C\u6210",
   "settings.templates": "\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8",
   "settings.board-template": "\u30DC\u30FC\u30C9\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8",
-  "settings.board-template-desc": "\u65B0\u3057\u3044\u30DC\u30FC\u30C9\u4F5C\u6210\u6642\u306E\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u30D5\u30A1\u30A4\u30EB\u30D1\u30B9\u3002"
+  "settings.board-template-desc": "\u65B0\u3057\u3044\u30DC\u30FC\u30C9\u4F5C\u6210\u6642\u306E\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u30D5\u30A1\u30A4\u30EB\u30D1\u30B9\u3002",
+  // Input
+  "settings.input": "\u5165\u529B",
+  "settings.newline-key": "\u6539\u884C\u30AD\u30FC",
+  "settings.newline-key-desc": "\u30AB\u30FC\u30C9\u306E\u30C6\u30AD\u30B9\u30C8\u5185\u3067\u6539\u884C\u3092\u633F\u5165\u3059\u308B\u30AD\u30FC\u306E\u7D44\u307F\u5408\u308F\u305B\u3002"
 };
 
 // src/lang/index.ts
@@ -883,18 +892,34 @@ var KanbanView = class extends import_obsidian.ItemView {
       }
     }, { passive: true });
   }
+  isNewlineKey(e) {
+    const key = this.plugin.settings.newlineKey;
+    if (key === "shift+enter") return e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+    if (key === "ctrl+enter") return (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
+    if (key === "alt+enter") return e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey;
+    return false;
+  }
   renderAddCardInput(laneEl, lane) {
     const inputContainer = laneEl.createDiv({ cls: "kanban-matsuo-add-card" });
-    const input = inputContainer.createEl("input", {
+    const textarea = inputContainer.createEl("textarea", {
       cls: "kanban-matsuo-add-card-input",
-      attr: { type: "text", placeholder: t("card.add"), "aria-label": t("card.add-to", { lane: lane.title }) }
+      attr: { placeholder: t("card.add"), "aria-label": t("card.add-to", { lane: lane.title }), rows: "1" }
     });
-    input.addEventListener("keydown", (e) => {
+    textarea.addEventListener("input", () => {
+      textarea.style.setProperty("--textarea-rows", "1");
+      const scrollH = textarea.scrollHeight;
+      textarea.style.setProperty("--textarea-height", `${scrollH}px`);
+    });
+    textarea.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.isComposing) {
-        const value = input.value.trim();
+        if (this.isNewlineKey(e)) {
+          return;
+        }
+        e.preventDefault();
+        const value = textarea.value.trim();
         if (value) {
           lane.items.push(createItem(value));
-          input.value = "";
+          textarea.value = "";
           this.render();
           this.scheduleSave();
         }
@@ -929,16 +954,22 @@ var KanbanView = class extends import_obsidian.ItemView {
     if (!titleEl) return;
     const parent = titleEl.parentElement;
     if (!parent) return;
-    const input = parent.createEl("input", {
+    const textarea = parent.createEl("textarea", {
       cls: "kanban-matsuo-inline-edit",
-      attr: { type: "text", value: item.title, "aria-label": t("card.edit-title") }
+      attr: { "aria-label": t("card.edit-title"), rows: "1" }
     });
-    input.value = item.title;
-    titleEl.replaceWith(input);
-    input.focus();
-    input.select();
+    textarea.value = item.title;
+    titleEl.replaceWith(textarea);
+    textarea.focus();
+    textarea.select();
+    const autoResize = () => {
+      textarea.style.setProperty("--textarea-height", "auto");
+      textarea.style.setProperty("--textarea-height", `${textarea.scrollHeight}px`);
+    };
+    autoResize();
+    textarea.addEventListener("input", autoResize);
     const finishEdit = () => {
-      const newTitle = input.value.trim();
+      const newTitle = textarea.value.trim();
       if (newTitle && newTitle !== item.title) {
         item.title = newTitle;
         item.tags = extractTags(newTitle);
@@ -947,14 +978,15 @@ var KanbanView = class extends import_obsidian.ItemView {
       }
       this.render();
     };
-    input.addEventListener("blur", finishEdit);
-    input.addEventListener("keydown", (e) => {
+    textarea.addEventListener("blur", finishEdit);
+    textarea.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.isComposing) {
+        if (this.isNewlineKey(e)) return;
         e.preventDefault();
-        input.blur();
+        textarea.blur();
       } else if (e.key === "Escape") {
-        input.value = item.title;
-        input.blur();
+        textarea.value = item.title;
+        textarea.blur();
       }
     });
   }
@@ -1221,6 +1253,13 @@ var KanbanSettingTab = class extends import_obsidian2.PluginSettingTab {
           this.plugin.settings.autoSaveDelay = num;
           await this.plugin.saveSettings();
         }
+      })
+    );
+    new import_obsidian2.Setting(containerEl).setName(t("settings.input")).setHeading();
+    new import_obsidian2.Setting(containerEl).setName(t("settings.newline-key")).setDesc(t("settings.newline-key-desc")).addDropdown(
+      (dropdown) => dropdown.addOption("shift+enter", "Shift + Enter").addOption("ctrl+enter", "Ctrl + Enter").addOption("alt+enter", "Alt + Enter").setValue(this.plugin.settings.newlineKey).onChange(async (value) => {
+        this.plugin.settings.newlineKey = value;
+        await this.plugin.saveSettings();
       })
     );
     new import_obsidian2.Setting(containerEl).setName(t("settings.templates")).setHeading();

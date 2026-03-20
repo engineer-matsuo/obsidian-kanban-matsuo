@@ -95,4 +95,9 @@ export const ja: Record<TranslationKey, string> = {
 	'settings.templates': 'テンプレート',
 	'settings.board-template': 'ボードテンプレート',
 	'settings.board-template-desc': '新しいボード作成時のテンプレートファイルパス。',
+
+	// Input
+	'settings.input': '入力',
+	'settings.newline-key': '改行キー',
+	'settings.newline-key-desc': 'カードのテキスト内で改行を挿入するキーの組み合わせ。',
 };

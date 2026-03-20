@@ -37,6 +37,7 @@ export interface KanbanPluginSettings {
 	autoSaveDelay: number;
 	language: 'auto' | 'en' | 'ja';
 	boardTemplatePath: string;
+	newlineKey: 'shift+enter' | 'ctrl+enter' | 'alt+enter';
 }
 
 export const DEFAULT_PLUGIN_SETTINGS: KanbanPluginSettings = {
@@ -48,6 +49,7 @@ export const DEFAULT_PLUGIN_SETTINGS: KanbanPluginSettings = {
 	autoSaveDelay: 500,
 	language: 'auto',
 	boardTemplatePath: '',
+	newlineKey: 'shift+enter',
 };
 
 export const DEFAULT_BOARD_SETTINGS: KanbanBoardSettings = {

@@ -93,6 +93,11 @@ export const en = {
 	'settings.templates': 'Templates',
 	'settings.board-template': 'Board template',
 	'settings.board-template-desc': 'Template file path for new boards.',
+
+	// Input
+	'settings.input': 'Input',
+	'settings.newline-key': 'Newline key',
+	'settings.newline-key-desc': 'Key combination to insert a newline in card text.',
 };
 
 export type TranslationKey = keyof typeof en;

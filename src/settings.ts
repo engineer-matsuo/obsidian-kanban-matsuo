@@ -127,6 +127,24 @@ export class KanbanSettingTab extends PluginSettingTab {
 					})
 			);
 
+		// Input
+		new Setting(containerEl).setName(t('settings.input')).setHeading();
+
+		new Setting(containerEl)
+			.setName(t('settings.newline-key'))
+			.setDesc(t('settings.newline-key-desc'))
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption('shift+enter', 'Shift + Enter')
+					.addOption('ctrl+enter', 'Ctrl + Enter')
+					.addOption('alt+enter', 'Alt + Enter')
+					.setValue(this.plugin.settings.newlineKey)
+					.onChange(async (value) => {
+						this.plugin.settings.newlineKey = value as 'shift+enter' | 'ctrl+enter' | 'alt+enter';
+						await this.plugin.saveSettings();
+					})
+			);
+
 		// Templates
 		new Setting(containerEl).setName(t('settings.templates')).setHeading();
 

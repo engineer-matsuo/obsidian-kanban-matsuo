@@ -523,16 +523,35 @@ export class KanbanView extends ItemView {
 		}, { passive: true });
 	}
 
+	private isNewlineKey(e: KeyboardEvent): boolean {
+		const key = this.plugin.settings.newlineKey;
+		if (key === 'shift+enter') return e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+		if (key === 'ctrl+enter') return (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
+		if (key === 'alt+enter') return e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey;
+		return false;
+	}
+
 	private renderAddCardInput(laneEl: HTMLElement, lane: KanbanLane): void {
 		const inputContainer = laneEl.createDiv({ cls: 'kanban-matsuo-add-card' });
-		const input = inputContainer.createEl('input', {
+		const textarea = inputContainer.createEl('textarea', {
 			cls: 'kanban-matsuo-add-card-input',
-			attr: { type: 'text', placeholder: t('card.add'), 'aria-label': t('card.add-to', { lane: lane.title }) },
+			attr: { placeholder: t('card.add'), 'aria-label': t('card.add-to', { lane: lane.title }), rows: '1' },
 		});
-		input.addEventListener('keydown', (e: KeyboardEvent) => {
+		// Auto-resize
+		textarea.addEventListener('input', () => {
+			textarea.style.setProperty('--textarea-rows', '1');
+			const scrollH = textarea.scrollHeight;
+			textarea.style.setProperty('--textarea-height', `${scrollH}px`);
+		});
+		textarea.addEventListener('keydown', (e: KeyboardEvent) => {
 			if (e.key === 'Enter' && !e.isComposing) {
-				const value = (input as HTMLInputElement).value.trim();
-				if (value) { lane.items.push(createItem(value)); (input as HTMLInputElement).value = ''; this.render(); this.scheduleSave(); }
+				if (this.isNewlineKey(e)) {
+					// Insert newline
+					return;
+				}
+				e.preventDefault();
+				const value = textarea.value.trim();
+				if (value) { lane.items.push(createItem(value)); textarea.value = ''; this.render(); this.scheduleSave(); }
 			}
 		});
 	}
@@ -558,23 +577,38 @@ export class KanbanView extends ItemView {
 		const parent = titleEl.parentElement;
 		if (!parent) return;
 
-		const input = parent.createEl('input', {
-			cls: 'kanban-matsuo-inline-edit', attr: { type: 'text', value: item.title, 'aria-label': t('card.edit-title') },
+		const textarea = parent.createEl('textarea', {
+			cls: 'kanban-matsuo-inline-edit',
+			attr: { 'aria-label': t('card.edit-title'), rows: '1' },
 		});
-		(input as HTMLInputElement).value = item.title;
-		titleEl.replaceWith(input);
-		input.focus();
-		(input as HTMLInputElement).select();
+		textarea.value = item.title;
+		titleEl.replaceWith(textarea);
+		textarea.focus();
+		textarea.select();
+
+		// Auto-resize to content
+		const autoResize = () => {
+			textarea.style.setProperty('--textarea-height', 'auto');
+			textarea.style.setProperty('--textarea-height', `${textarea.scrollHeight}px`);
+		};
+		autoResize();
+		textarea.addEventListener('input', autoResize);
 
 		const finishEdit = () => {
-			const newTitle = (input as HTMLInputElement).value.trim();
+			const newTitle = textarea.value.trim();
 			if (newTitle && newTitle !== item.title) { item.title = newTitle; item.tags = extractTags(newTitle); item.dueDate = extractDate(newTitle); this.scheduleSave(); }
 			this.render();
 		};
-		input.addEventListener('blur', finishEdit);
-		input.addEventListener('keydown', (e: KeyboardEvent) => {
-			if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); (input as HTMLInputElement).blur(); }
-			else if (e.key === 'Escape') { (input as HTMLInputElement).value = item.title; (input as HTMLInputElement).blur(); }
+		textarea.addEventListener('blur', finishEdit);
+		textarea.addEventListener('keydown', (e: KeyboardEvent) => {
+			if (e.key === 'Enter' && !e.isComposing) {
+				if (this.isNewlineKey(e)) return; // Allow newline
+				e.preventDefault();
+				textarea.blur();
+			} else if (e.key === 'Escape') {
+				textarea.value = item.title;
+				textarea.blur();
+			}
 		});
 	}
 
