@@ -724,6 +724,11 @@ var KanbanView = class extends import_obsidian.ItemView {
   render() {
     var _a, _b;
     if (!this.board) return;
+    for (const lane of this.board.lanes) {
+      for (const item of lane.items) {
+        if (!item.archived) this.computeParentDates(item);
+      }
+    }
     const ganttWrap = this.contentEl.querySelector(".kanban-matsuo-gantt-wrapper");
     const savedScrollLeft = (_a = ganttWrap == null ? void 0 : ganttWrap.scrollLeft) != null ? _a : 0;
     const savedScrollTop = (_b = ganttWrap == null ? void 0 : ganttWrap.scrollTop) != null ? _b : 0;
@@ -1257,12 +1262,30 @@ var KanbanView = class extends import_obsidian.ItemView {
    */
   renderWbs(container) {
     if (!this.board) return;
-    const flatItems = [];
+    const topItems = [];
     for (const lane of this.board.lanes) {
       for (const item of lane.items) {
-        if (!item.archived) this.flattenForWbs(item, lane.title, 0, flatItems);
+        if (!item.archived) topItems.push({ item, lane: lane.title });
       }
     }
+    if (this.ganttDragging && this.ganttSortedIds.length > 0) {
+      const idOrder = new Map(this.ganttSortedIds.map((id, i) => [id, i]));
+      topItems.sort((a, b) => {
+        var _a, _b;
+        return ((_a = idOrder.get(a.item.id)) != null ? _a : 999) - ((_b = idOrder.get(b.item.id)) != null ? _b : 999);
+      });
+    } else {
+      topItems.sort((a, b) => {
+        const aDate = a.item.startDate || a.item.endDate || "9999-99-99";
+        const bDate = b.item.startDate || b.item.endDate || "9999-99-99";
+        return aDate.localeCompare(bDate);
+      });
+    }
+    const flatItems = [];
+    for (const { item, lane } of topItems) {
+      this.flattenForWbs(item, lane, 0, flatItems);
+    }
+    this.ganttSortedIds = topItems.map((t2) => t2.item.id);
     const today = this.getToday();
     let minDate = today;
     let maxDate = today;
@@ -1275,20 +1298,6 @@ var KanbanView = class extends import_obsidian.ItemView {
     const dates = this.generateDateRange(rangeStart, rangeEnd);
     const wbsContainer = container.createDiv({ cls: "kanban-matsuo-wbs" });
     const wrapper = wbsContainer.createDiv({ cls: "kanban-matsuo-gantt-wrapper" });
-    if (this.ganttDragging && this.ganttSortedIds.length > 0) {
-      const idOrder = new Map(this.ganttSortedIds.map((id, i) => [id, i]));
-      flatItems.sort((a, b) => {
-        var _a, _b;
-        return ((_a = idOrder.get(a.item.id)) != null ? _a : 999) - ((_b = idOrder.get(b.item.id)) != null ? _b : 999);
-      });
-    } else {
-      flatItems.sort((a, b) => {
-        const aDate = a.item.startDate || a.item.endDate || "9999-99-99";
-        const bDate = b.item.startDate || b.item.endDate || "9999-99-99";
-        return aDate.localeCompare(bDate);
-      });
-      this.ganttSortedIds = flatItems.map((f) => f.item.id);
-    }
     const hdr1 = wrapper.createDiv({ cls: "kanban-matsuo-gantt-row kanban-matsuo-gantt-hdr" });
     hdr1.createDiv({ cls: "kanban-matsuo-gantt-left-cell kanban-matsuo-gantt-hdr-cell", text: t("wbs.title") });
     const hdr1Right = hdr1.createDiv({ cls: "kanban-matsuo-gantt-right-cells kanban-matsuo-gantt-hdr-cell" });
@@ -1347,6 +1356,7 @@ var KanbanView = class extends import_obsidian.ItemView {
         return `${pct}%`;
       })() });
       const rightCells = row.createDiv({ cls: "kanban-matsuo-gantt-right-cells" });
+      const isParent = item.children.length > 0;
       for (let di = 0; di < dates.length; di++) {
         const d = dates[di];
         const cell = rightCells.createDiv({
@@ -1362,23 +1372,28 @@ var KanbanView = class extends import_obsidian.ItemView {
         if (inRange) {
           const bar = cell.createDiv({ cls: "kanban-matsuo-gantt-bar" });
           if (item.checked) bar.addClass("kanban-matsuo-gantt-bar-done");
+          if (isParent) bar.addClass("kanban-matsuo-gantt-bar-parent");
           if (d === start) {
-            bar.createDiv({ cls: "kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-left" });
             bar.setAttribute("data-label", item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim());
           }
-          if (d === end) {
-            bar.createDiv({ cls: "kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-right" });
+          if (!isParent) {
+            if (d === start) {
+              bar.createDiv({ cls: "kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-left" });
+            }
+            if (d === end) {
+              bar.createDiv({ cls: "kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-right" });
+            }
+            this.setupGanttBarDrag(bar, item, dates);
+            if (d === start) {
+              const lh = bar.querySelector(".kanban-matsuo-gantt-handle-left");
+              if (lh) this.setupGanttResize(lh, item, dates, "start");
+            }
+            if (d === end) {
+              const rh = bar.querySelector(".kanban-matsuo-gantt-handle-right");
+              if (rh) this.setupGanttResize(rh, item, dates, "end");
+            }
           }
-          this.setupGanttBarDrag(bar, item, dates);
-          if (d === start) {
-            const lh = bar.querySelector(".kanban-matsuo-gantt-handle-left");
-            if (lh) this.setupGanttResize(lh, item, dates, "start");
-          }
-          if (d === end) {
-            const rh = bar.querySelector(".kanban-matsuo-gantt-handle-right");
-            if (rh) this.setupGanttResize(rh, item, dates, "end");
-          }
-        } else {
+        } else if (!isParent) {
           cell.addEventListener("click", () => {
             if (!item.startDate && !item.endDate) {
               item.startDate = d;
@@ -1399,8 +1414,32 @@ var KanbanView = class extends import_obsidian.ItemView {
     }
   }
   /**
-   * Setup drag on a gantt bar to move the entire period.
+   * Recursively compute parent dates from children.
+   * A parent with children cannot have its own dates - they are derived
+   * from the min start and max end of all descendant leaf tasks.
    */
+  computeParentDates(item) {
+    if (item.children.length === 0) return;
+    for (const child of item.children) {
+      if (!child.archived) this.computeParentDates(child);
+    }
+    let minStart = null;
+    let maxEnd = null;
+    const collectDates = (items) => {
+      for (const c of items) {
+        if (c.archived) continue;
+        const s = c.startDate || c.endDate;
+        const e = c.endDate || c.startDate;
+        if (s && (!minStart || s < minStart)) minStart = s;
+        if (e && (!maxEnd || e > maxEnd)) maxEnd = e;
+        collectDates(c.children);
+      }
+    };
+    collectDates(item.children);
+    item.startDate = minStart;
+    item.endDate = maxEnd;
+    item.title = item.title.replace(/@\{[^}]*\}/g, "").trim();
+  }
   /**
    * Update gantt bar cells in-place without re-rendering the whole view.
    * Finds the row by item id and toggles bar visibility per cell.
@@ -1533,8 +1572,13 @@ var KanbanView = class extends import_obsidian.ItemView {
   }
   flattenForWbs(item, lane, depth, out) {
     out.push({ item, lane, depth });
-    for (const child of item.children) {
-      if (!child.archived) this.flattenForWbs(child, lane, depth + 1, out);
+    const sortedChildren = item.children.filter((c) => !c.archived).sort((a, b) => {
+      const aDate = a.startDate || a.endDate || "9999-99-99";
+      const bDate = b.startDate || b.endDate || "9999-99-99";
+      return aDate.localeCompare(bDate);
+    });
+    for (const child of sortedChildren) {
+      this.flattenForWbs(child, lane, depth + 1, out);
     }
   }
   addDays(dateStr, days) {

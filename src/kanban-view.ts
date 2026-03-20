@@ -171,6 +171,13 @@ export class KanbanView extends ItemView {
 	private render(): void {
 		if (!this.board) return;
 
+		// Recompute parent dates from children before any rendering
+		for (const lane of this.board.lanes) {
+			for (const item of lane.items) {
+				if (!item.archived) this.computeParentDates(item);
+			}
+		}
+
 		// Save scroll positions before re-render
 		const ganttWrap = this.contentEl.querySelector('.kanban-matsuo-gantt-wrapper') as HTMLElement | null;
 		const savedScrollLeft = ganttWrap?.scrollLeft ?? 0;
@@ -765,12 +772,33 @@ export class KanbanView extends ItemView {
 		if (!this.board) return;
 
 		// Collect all items flat with lane info
-		const flatItems: { item: KanbanItem; lane: string; depth: number }[] = [];
+		// Parent dates already computed in render()
+		// Flatten: top-level items with children inline (parent+children always together)
+		const topItems: { item: KanbanItem; lane: string }[] = [];
 		for (const lane of this.board.lanes) {
 			for (const item of lane.items) {
-				if (!item.archived) this.flattenForWbs(item, lane.title, 0, flatItems);
+				if (!item.archived) topItems.push({ item, lane: lane.title });
 			}
 		}
+
+		// Sort top-level by start date (children stay with parent)
+		if (this.ganttDragging && this.ganttSortedIds.length > 0) {
+			const idOrder = new Map(this.ganttSortedIds.map((id, i) => [id, i]));
+			topItems.sort((a, b) => (idOrder.get(a.item.id) ?? 999) - (idOrder.get(b.item.id) ?? 999));
+		} else {
+			topItems.sort((a, b) => {
+				const aDate = a.item.startDate || a.item.endDate || '9999-99-99';
+				const bDate = b.item.startDate || b.item.endDate || '9999-99-99';
+				return aDate.localeCompare(bDate);
+			});
+		}
+
+		// Flatten sorted top-level with their children
+		const flatItems: { item: KanbanItem; lane: string; depth: number }[] = [];
+		for (const { item, lane } of topItems) {
+			this.flattenForWbs(item, lane, 0, flatItems);
+		}
+		this.ganttSortedIds = topItems.map((t) => t.item.id);
 
 		// Compute date range for timeline
 		const today = this.getToday();
@@ -780,26 +808,12 @@ export class KanbanView extends ItemView {
 			if (item.startDate && item.startDate < minDate) minDate = item.startDate;
 			if (item.endDate && item.endDate > maxDate) maxDate = item.endDate;
 		}
-		// Generous padding so bars don't disappear at edges during drag
 		const rangeStart = this.addDays(minDate, -7);
 		const rangeEnd = this.addDays(maxDate, 30);
 		const dates = this.generateDateRange(rangeStart, rangeEnd);
 
 		const wbsContainer = container.createDiv({ cls: 'kanban-matsuo-wbs' });
 		const wrapper = wbsContainer.createDiv({ cls: 'kanban-matsuo-gantt-wrapper' });
-
-		// Sort
-		if (this.ganttDragging && this.ganttSortedIds.length > 0) {
-			const idOrder = new Map(this.ganttSortedIds.map((id, i) => [id, i]));
-			flatItems.sort((a, b) => (idOrder.get(a.item.id) ?? 999) - (idOrder.get(b.item.id) ?? 999));
-		} else {
-			flatItems.sort((a, b) => {
-				const aDate = a.item.startDate || a.item.endDate || '9999-99-99';
-				const bDate = b.item.startDate || b.item.endDate || '9999-99-99';
-				return aDate.localeCompare(bDate);
-			});
-			this.ganttSortedIds = flatItems.map((f) => f.item.id);
-		}
 
 		// HEADER ROW 1: month (each cell = 28px, label on first day of month)
 		const hdr1 = wrapper.createDiv({ cls: 'kanban-matsuo-gantt-row kanban-matsuo-gantt-hdr' });
@@ -872,6 +886,7 @@ export class KanbanView extends ItemView {
 
 			// Right: date cells
 			const rightCells = row.createDiv({ cls: 'kanban-matsuo-gantt-right-cells' });
+			const isParent = item.children.length > 0;
 
 			for (let di = 0; di < dates.length; di++) {
 				const d = dates[di];
@@ -890,23 +905,31 @@ export class KanbanView extends ItemView {
 				if (inRange) {
 					const bar = cell.createDiv({ cls: 'kanban-matsuo-gantt-bar' });
 					if (item.checked) bar.addClass('kanban-matsuo-gantt-bar-done');
+					if (isParent) bar.addClass('kanban-matsuo-gantt-bar-parent');
 					if (d === start) {
-						bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-left' });
 						bar.setAttribute('data-label', item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim());
 					}
-					if (d === end) {
-						bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-right' });
+
+					// Only leaf tasks (no children) can be dragged/resized
+					if (!isParent) {
+						if (d === start) {
+							bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-left' });
+						}
+						if (d === end) {
+							bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-right' });
+						}
+						this.setupGanttBarDrag(bar, item, dates);
+						if (d === start) {
+							const lh = bar.querySelector('.kanban-matsuo-gantt-handle-left') as HTMLElement;
+							if (lh) this.setupGanttResize(lh, item, dates, 'start');
+						}
+						if (d === end) {
+							const rh = bar.querySelector('.kanban-matsuo-gantt-handle-right') as HTMLElement;
+							if (rh) this.setupGanttResize(rh, item, dates, 'end');
+						}
 					}
-					this.setupGanttBarDrag(bar, item, dates);
-					if (d === start) {
-						const lh = bar.querySelector('.kanban-matsuo-gantt-handle-left') as HTMLElement;
-						if (lh) this.setupGanttResize(lh, item, dates, 'start');
-					}
-					if (d === end) {
-						const rh = bar.querySelector('.kanban-matsuo-gantt-handle-right') as HTMLElement;
-						if (rh) this.setupGanttResize(rh, item, dates, 'end');
-					}
-				} else {
+				} else if (!isParent) {
+					// Only leaf tasks can have dates set by clicking
 					cell.addEventListener('click', () => {
 						if (!item.startDate && !item.endDate) { item.startDate = d; item.endDate = d; }
 						else if (!item.startDate) { item.startDate = d < item.endDate! ? d : item.endDate; if (d > item.endDate!) item.endDate = d; }
@@ -922,8 +945,42 @@ export class KanbanView extends ItemView {
 	}
 
 	/**
-	 * Setup drag on a gantt bar to move the entire period.
+	 * Recursively compute parent dates from children.
+	 * A parent with children cannot have its own dates - they are derived
+	 * from the min start and max end of all descendant leaf tasks.
 	 */
+	private computeParentDates(item: KanbanItem): void {
+		if (item.children.length === 0) return;
+
+		// First, recursively compute children
+		for (const child of item.children) {
+			if (!child.archived) this.computeParentDates(child);
+		}
+
+		// Collect min start and max end from all descendants
+		let minStart: string | null = null;
+		let maxEnd: string | null = null;
+
+		const collectDates = (items: KanbanItem[]) => {
+			for (const c of items) {
+				if (c.archived) continue;
+				// Use startDate for min, endDate for max
+				const s = c.startDate || c.endDate;
+				const e = c.endDate || c.startDate;
+				if (s && (!minStart || s < minStart)) minStart = s;
+				if (e && (!maxEnd || e > maxEnd)) maxEnd = e;
+				collectDates(c.children);
+			}
+		};
+		collectDates(item.children);
+
+		// Override parent dates
+		item.startDate = minStart;
+		item.endDate = maxEnd;
+		// Update title to remove manual date markers
+		item.title = item.title.replace(/@\{[^}]*\}/g, '').trim();
+	}
+
 	/**
 	 * Update gantt bar cells in-place without re-rendering the whole view.
 	 * Finds the row by item id and toggles bar visibility per cell.
@@ -1085,8 +1142,16 @@ export class KanbanView extends ItemView {
 
 	private flattenForWbs(item: KanbanItem, lane: string, depth: number, out: { item: KanbanItem; lane: string; depth: number }[]): void {
 		out.push({ item, lane, depth });
-		for (const child of item.children) {
-			if (!child.archived) this.flattenForWbs(child, lane, depth + 1, out);
+		// Sort children by start date before flattening
+		const sortedChildren = item.children
+			.filter((c) => !c.archived)
+			.sort((a, b) => {
+				const aDate = a.startDate || a.endDate || '9999-99-99';
+				const bDate = b.startDate || b.endDate || '9999-99-99';
+				return aDate.localeCompare(bDate);
+			});
+		for (const child of sortedChildren) {
+			this.flattenForWbs(child, lane, depth + 1, out);
 		}
 	}
 
