@@ -652,105 +652,147 @@ span.kanban-matsuo-subtask-done {
 	flex-shrink: 0;
 	max-height: 45vh;
 	overflow: hidden;
+	min-height: 200px;
 }
 
+/* Gantt: div-based rows for perfect alignment */
 .kanban-matsuo-gantt-wrapper {
-	display: flex;
+	overflow: auto;
 	height: 100%;
-	overflow: hidden;
-}
-
-/* Left panel: task list */
-.kanban-matsuo-gantt-left {
-	flex-shrink: 0;
-	width: 360px;
-	min-width: 280px;
-	overflow-y: auto;
-	border-right: 2px solid var(--background-modifier-border);
-}
-
-.kanban-matsuo-gantt-table-left {
-	width: 100%;
-	border-collapse: collapse;
 	font-size: var(--font-ui-small);
 }
 
-.kanban-matsuo-gantt-table-left th {
-	text-align: left;
-	padding: var(--size-2-2) var(--size-4-2);
+/* Each row: left fixed + right flows */
+.kanban-matsuo-gantt-row {
+	display: flex;
+	height: 28px;
+	min-height: 28px;
+	max-height: 28px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	width: max-content;
+	min-width: 100%;
+}
+
+.kanban-matsuo-gantt-hdr {
 	background: var(--background-secondary);
-	border-bottom: 2px solid var(--background-modifier-border);
-	color: var(--text-muted);
-	font-weight: var(--font-semibold);
-	white-space: nowrap;
+	flex-shrink: 0;
 	position: sticky;
 	top: 0;
+	z-index: 3;
+}
+
+.kanban-matsuo-gantt-hdr:nth-child(2) {
+	top: 28px;
+}
+
+/* Left cell: task name + progress */
+.kanban-matsuo-gantt-left-cell {
+	flex-shrink: 0;
+	width: 300px;
+	min-width: 300px;
+	display: flex;
+	align-items: center;
+	border-right: 2px solid var(--background-modifier-border);
+	overflow: hidden;
+	padding: 0 var(--size-4-2);
+	box-sizing: border-box;
+	background: var(--background-primary);
+	position: sticky;
+	left: 0;
 	z-index: 1;
 }
 
-.kanban-matsuo-gantt-table-left td {
-	padding: var(--size-2-2) var(--size-4-2);
-	border-bottom: 1px solid var(--background-modifier-border);
-	white-space: nowrap;
+.kanban-matsuo-gantt-hdr .kanban-matsuo-gantt-left-cell {
+	background: var(--background-secondary);
+	z-index: 2;
 }
 
-.kanban-matsuo-gantt-task {
-	padding-left: calc(var(--gantt-depth, 0) * var(--size-4-4) + var(--size-4-2)) !important;
-	color: var(--text-normal);
-	max-width: 200px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.kanban-matsuo-gantt-status {
-	color: var(--text-accent);
-	font-size: var(--font-ui-smaller);
-}
-
-.kanban-matsuo-gantt-progress {
+.kanban-matsuo-gantt-hdr-cell {
+	font-weight: var(--font-semibold);
 	color: var(--text-muted);
-	font-size: var(--font-ui-smaller);
+}
+
+.kanban-matsuo-gantt-hdr-task {
+	flex: 1;
+}
+
+.kanban-matsuo-gantt-hdr-progress {
+	flex-shrink: 0;
 	text-align: right;
 }
 
-.kanban-matsuo-wbs-done td {
-	color: var(--text-muted);
-	text-decoration: line-through;
+/* Month blocks: one div per month, alternating color */
+.kanban-matsuo-gantt-month-block {
+	height: 28px;
+	line-height: 28px;
+	padding: 0 var(--size-4-2);
+	font-weight: var(--font-semibold);
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	box-sizing: border-box;
+	flex-shrink: 0;
 }
 
-/* Right panel: timeline */
-.kanban-matsuo-gantt-right {
+.kanban-matsuo-gantt-month-odd {
+	background: var(--background-secondary);
+}
+
+.kanban-matsuo-gantt-month-even {
+	background: color-mix(in srgb, var(--background-modifier-border) 40%, var(--background-secondary));
+}
+
+.kanban-matsuo-gantt-task {
 	flex: 1;
-	overflow: auto;
+	padding-left: calc(var(--gantt-depth, 0) * 16px);
+	color: var(--text-normal);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
-.kanban-matsuo-gantt-table-right {
-	border-collapse: collapse;
+.kanban-matsuo-gantt-progress {
+	flex-shrink: 0;
+	width: 40px;
+	text-align: right;
+	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 }
 
-.kanban-matsuo-gantt-table-right th {
-	padding: var(--size-2-1);
-	min-width: 28px;
+.kanban-matsuo-wbs-done {
+	opacity: 0.5;
+}
+
+.kanban-matsuo-wbs-done .kanban-matsuo-gantt-task {
+	text-decoration: line-through;
+}
+
+/* Right cells: date columns */
+.kanban-matsuo-gantt-right-cells {
+	display: flex;
+}
+
+/* Body area: no own scroll, wrapper handles it */
+.kanban-matsuo-gantt-body {
+}
+
+/* Individual day cell */
+.kanban-matsuo-gantt-day-cell {
+	flex-shrink: 0;
 	width: 28px;
+	min-width: 28px;
+	height: 28px;
 	text-align: center;
-	background: var(--background-secondary);
-	border-bottom: 2px solid var(--background-modifier-border);
+	line-height: 28px;
 	border-right: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
-	font-weight: normal;
-	position: sticky;
-	top: 0;
-	z-index: 1;
+	box-sizing: border-box;
 }
 
 .kanban-matsuo-gantt-cell {
-	min-width: 28px;
-	width: 28px;
-	height: 28px;
-	padding: 0;
-	border-bottom: 1px solid var(--background-modifier-border);
-	border-right: 1px solid var(--background-modifier-border);
 	position: relative;
 }
 
