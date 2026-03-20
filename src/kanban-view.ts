@@ -54,6 +54,8 @@ export class KanbanView extends ItemView {
 
 	// WBS view toggle
 	private showWbs = false;
+	private ganttDragging = false;
+	private ganttSortedIds: string[] = [];
 
 	// External change detection (counter to handle concurrent saves)
 	private ignoreModifyCount = 0;
@@ -169,6 +171,13 @@ export class KanbanView extends ItemView {
 	private render(): void {
 		if (!this.board) return;
 
+		// Save scroll positions before re-render
+		const ganttRight = this.contentEl.querySelector('.kanban-matsuo-gantt-right') as HTMLElement | null;
+		const ganttLeft = this.contentEl.querySelector('.kanban-matsuo-gantt-left') as HTMLElement | null;
+		const savedScrollLeft = ganttRight?.scrollLeft ?? 0;
+		const savedScrollTop = ganttRight?.scrollTop ?? 0;
+		const savedLeftScrollTop = ganttLeft?.scrollTop ?? 0;
+
 		this.contentEl.empty();
 		this.contentEl.addClass('kanban-matsuo-container');
 		this.contentEl.setAttribute('role', 'application');
@@ -191,6 +200,12 @@ export class KanbanView extends ItemView {
 		// WBS section
 		if (this.showWbs) {
 			this.renderWbs(this.contentEl);
+
+			// Restore scroll positions
+			const newRight = this.contentEl.querySelector('.kanban-matsuo-gantt-right') as HTMLElement | null;
+			const newLeft = this.contentEl.querySelector('.kanban-matsuo-gantt-left') as HTMLElement | null;
+			if (newRight) { newRight.scrollLeft = savedScrollLeft; newRight.scrollTop = savedScrollTop; }
+			if (newLeft) { newLeft.scrollTop = savedLeftScrollTop; }
 		}
 	}
 
@@ -769,9 +784,9 @@ export class KanbanView extends ItemView {
 			if (item.startDate && item.startDate < minDate) minDate = item.startDate;
 			if (item.endDate && item.endDate > maxDate) maxDate = item.endDate;
 		}
-		// Pad range by a few days
-		const rangeStart = this.addDays(minDate, -2);
-		const rangeEnd = this.addDays(maxDate, 5);
+		// Generous padding so bars don't disappear at edges during drag
+		const rangeStart = this.addDays(minDate, -7);
+		const rangeEnd = this.addDays(maxDate, 30);
 		const dates = this.generateDateRange(rangeStart, rangeEnd);
 
 		const wbsContainer = container.createDiv({ cls: 'kanban-matsuo-wbs' });
@@ -785,24 +800,31 @@ export class KanbanView extends ItemView {
 		const leftHead = leftTable.createEl('thead');
 		const leftHR = leftHead.createEl('tr');
 		leftHR.createEl('th', { text: t('wbs.col-task') });
-		leftHR.createEl('th', { text: t('wbs.col-status') });
 		leftHR.createEl('th', { text: t('wbs.col-progress') });
 
+		// Sort by start date, but preserve order during drag
+		if (this.ganttDragging && this.ganttSortedIds.length > 0) {
+			const idOrder = new Map(this.ganttSortedIds.map((id, i) => [id, i]));
+			flatItems.sort((a, b) => (idOrder.get(a.item.id) ?? 999) - (idOrder.get(b.item.id) ?? 999));
+		} else {
+			flatItems.sort((a, b) => {
+				const aDate = a.item.startDate || a.item.endDate || '9999-99-99';
+				const bDate = b.item.startDate || b.item.endDate || '9999-99-99';
+				return aDate.localeCompare(bDate);
+			});
+			this.ganttSortedIds = flatItems.map((f) => f.item.id);
+		}
+
 		const leftBody = leftTable.createEl('tbody');
-		for (const { item, lane, depth } of flatItems) {
+		for (const { item, depth } of flatItems) {
 			const row = leftBody.createEl('tr', { cls: item.checked ? 'kanban-matsuo-wbs-done' : '' });
 
-			// Task name with indent
 			const taskCell = row.createEl('td', { cls: 'kanban-matsuo-gantt-task' });
 			if (depth > 0) taskCell.style.setProperty('--gantt-depth', `${depth}`);
 			const prefix = depth > 0 ? '└ ' : '';
 			const cleanTitle = item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim();
 			taskCell.setText(`${prefix}${cleanTitle}`);
 
-			// Status = lane name
-			row.createEl('td', { text: lane, cls: 'kanban-matsuo-gantt-status' });
-
-			// Progress
 			const progCell = row.createEl('td', { cls: 'kanban-matsuo-gantt-progress' });
 			let pct = item.checked ? 100 : 0;
 			if (item.children.length > 0) {
@@ -832,7 +854,7 @@ export class KanbanView extends ItemView {
 		// Bars (interactive)
 		const rightBody = rightTable.createEl('tbody');
 		for (const { item } of flatItems) {
-			const row = rightBody.createEl('tr');
+			const row = rightBody.createEl('tr', { attr: { 'data-gantt-id': item.id } });
 
 			for (let di = 0; di < dates.length; di++) {
 				const d = dates[di];
@@ -900,6 +922,52 @@ export class KanbanView extends ItemView {
 	/**
 	 * Setup drag on a gantt bar to move the entire period.
 	 */
+	/**
+	 * Update gantt bar cells in-place without re-rendering the whole view.
+	 * Finds the row by item id and toggles bar visibility per cell.
+	 */
+	private updateGanttRowInPlace(item: KanbanItem, dates: string[]): void {
+		const row = this.contentEl.querySelector(
+			`.kanban-matsuo-gantt-table-right tbody tr[data-gantt-id="${item.id}"]`
+		) as HTMLElement | null;
+		if (!row) return;
+
+		const cells = row.querySelectorAll('.kanban-matsuo-gantt-cell');
+		const start = item.startDate || item.endDate;
+		const end = item.endDate || item.startDate;
+
+		cells.forEach((cell, i) => {
+			const d = dates[i];
+			if (!d) return;
+			const existing = cell.querySelector('.kanban-matsuo-gantt-bar');
+			const inRange = start && end && d >= start && d <= end;
+
+			if (inRange && !existing) {
+				const bar = (cell as HTMLElement).createDiv({ cls: 'kanban-matsuo-gantt-bar' });
+				if (item.checked) bar.addClass('kanban-matsuo-gantt-bar-done');
+				if (d === start) {
+					const label = item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim();
+					bar.setAttribute('data-label', label);
+					bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-left' });
+				}
+				if (d === end) {
+					bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-right' });
+				}
+			} else if (!inRange && existing) {
+				existing.remove();
+			} else if (inRange && existing) {
+				// Update label position
+				const bar = existing as HTMLElement;
+				if (d === start) {
+					const label = item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim();
+					bar.setAttribute('data-label', label);
+				} else {
+					bar.removeAttribute('data-label');
+				}
+			}
+		});
+	}
+
 	private setupGanttBarDrag(bar: HTMLElement, item: KanbanItem, dates: string[]): void {
 		let startX = 0;
 		let origStart = '';
@@ -914,6 +982,7 @@ export class KanbanView extends ItemView {
 			startX = e.clientX;
 			origStart = item.startDate || '';
 			origEnd = item.endDate || '';
+			this.ganttDragging = true;
 
 			const cellWidth = 28;
 
@@ -932,13 +1001,15 @@ export class KanbanView extends ItemView {
 				item.startDate = dates[newSi];
 				item.endDate = dates[newEi];
 				this.updateItemTitleDates(item);
-				this.render();
+				this.updateGanttRowInPlace(item, dates);
 			};
 
 			const onMouseUp = () => {
 				document.removeEventListener('mousemove', onMouseMove);
 				document.removeEventListener('mouseup', onMouseUp);
+				this.ganttDragging = false;
 				this.scheduleSave();
+				this.render();
 			};
 
 			document.addEventListener('mousemove', onMouseMove);
@@ -946,9 +1017,6 @@ export class KanbanView extends ItemView {
 		});
 	}
 
-	/**
-	 * Setup resize handle on gantt bar to change start or end date.
-	 */
 	private setupGanttResize(handle: HTMLElement, item: KanbanItem, dates: string[], edge: 'start' | 'end'): void {
 		handle.addEventListener('mousedown', (e) => {
 			e.preventDefault();
@@ -957,6 +1025,7 @@ export class KanbanView extends ItemView {
 			const startX = e.clientX;
 			const origDate = edge === 'start' ? (item.startDate || '') : (item.endDate || '');
 			const cellWidth = 28;
+			this.ganttDragging = true;
 
 			const onMouseMove = (ev: MouseEvent) => {
 				const dx = ev.clientX - startX;
@@ -978,13 +1047,15 @@ export class KanbanView extends ItemView {
 				}
 
 				this.updateItemTitleDates(item);
-				this.render();
+				this.updateGanttRowInPlace(item, dates);
 			};
 
 			const onMouseUp = () => {
 				document.removeEventListener('mousemove', onMouseMove);
 				document.removeEventListener('mouseup', onMouseUp);
+				this.ganttDragging = false;
 				this.scheduleSave();
+				this.render();
 			};
 
 			document.addEventListener('mousemove', onMouseMove);

@@ -625,6 +625,8 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.richMode = false;
     // WBS view toggle
     this.showWbs = false;
+    this.ganttDragging = false;
+    this.ganttSortedIds = [];
     // External change detection (counter to handle concurrent saves)
     this.ignoreModifyCount = 0;
     // Drag state for indent detection
@@ -720,7 +722,13 @@ var KanbanView = class extends import_obsidian.ItemView {
     await this.app.vault.process(this.file, () => boardToMarkdown(board));
   }
   render() {
+    var _a, _b, _c;
     if (!this.board) return;
+    const ganttRight = this.contentEl.querySelector(".kanban-matsuo-gantt-right");
+    const ganttLeft = this.contentEl.querySelector(".kanban-matsuo-gantt-left");
+    const savedScrollLeft = (_a = ganttRight == null ? void 0 : ganttRight.scrollLeft) != null ? _a : 0;
+    const savedScrollTop = (_b = ganttRight == null ? void 0 : ganttRight.scrollTop) != null ? _b : 0;
+    const savedLeftScrollTop = (_c = ganttLeft == null ? void 0 : ganttLeft.scrollTop) != null ? _c : 0;
     this.contentEl.empty();
     this.contentEl.addClass("kanban-matsuo-container");
     this.contentEl.setAttribute("role", "application");
@@ -737,6 +745,15 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.renderAddLaneButton(this.boardEl);
     if (this.showWbs) {
       this.renderWbs(this.contentEl);
+      const newRight = this.contentEl.querySelector(".kanban-matsuo-gantt-right");
+      const newLeft = this.contentEl.querySelector(".kanban-matsuo-gantt-left");
+      if (newRight) {
+        newRight.scrollLeft = savedScrollLeft;
+        newRight.scrollTop = savedScrollTop;
+      }
+      if (newLeft) {
+        newLeft.scrollTop = savedLeftScrollTop;
+      }
     }
   }
   renderToolbar(container) {
@@ -1259,8 +1276,8 @@ var KanbanView = class extends import_obsidian.ItemView {
       if (item.startDate && item.startDate < minDate) minDate = item.startDate;
       if (item.endDate && item.endDate > maxDate) maxDate = item.endDate;
     }
-    const rangeStart = this.addDays(minDate, -2);
-    const rangeEnd = this.addDays(maxDate, 5);
+    const rangeStart = this.addDays(minDate, -7);
+    const rangeEnd = this.addDays(maxDate, 30);
     const dates = this.generateDateRange(rangeStart, rangeEnd);
     const wbsContainer = container.createDiv({ cls: "kanban-matsuo-wbs" });
     const wrapper = wbsContainer.createDiv({ cls: "kanban-matsuo-gantt-wrapper" });
@@ -1269,17 +1286,29 @@ var KanbanView = class extends import_obsidian.ItemView {
     const leftHead = leftTable.createEl("thead");
     const leftHR = leftHead.createEl("tr");
     leftHR.createEl("th", { text: t("wbs.col-task") });
-    leftHR.createEl("th", { text: t("wbs.col-status") });
     leftHR.createEl("th", { text: t("wbs.col-progress") });
+    if (this.ganttDragging && this.ganttSortedIds.length > 0) {
+      const idOrder = new Map(this.ganttSortedIds.map((id, i) => [id, i]));
+      flatItems.sort((a, b) => {
+        var _a, _b;
+        return ((_a = idOrder.get(a.item.id)) != null ? _a : 999) - ((_b = idOrder.get(b.item.id)) != null ? _b : 999);
+      });
+    } else {
+      flatItems.sort((a, b) => {
+        const aDate = a.item.startDate || a.item.endDate || "9999-99-99";
+        const bDate = b.item.startDate || b.item.endDate || "9999-99-99";
+        return aDate.localeCompare(bDate);
+      });
+      this.ganttSortedIds = flatItems.map((f) => f.item.id);
+    }
     const leftBody = leftTable.createEl("tbody");
-    for (const { item, lane, depth } of flatItems) {
+    for (const { item, depth } of flatItems) {
       const row = leftBody.createEl("tr", { cls: item.checked ? "kanban-matsuo-wbs-done" : "" });
       const taskCell = row.createEl("td", { cls: "kanban-matsuo-gantt-task" });
       if (depth > 0) taskCell.style.setProperty("--gantt-depth", `${depth}`);
       const prefix = depth > 0 ? "\u2514 " : "";
       const cleanTitle = item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim();
       taskCell.setText(`${prefix}${cleanTitle}`);
-      row.createEl("td", { text: lane, cls: "kanban-matsuo-gantt-status" });
       const progCell = row.createEl("td", { cls: "kanban-matsuo-gantt-progress" });
       let pct = item.checked ? 100 : 0;
       if (item.children.length > 0) {
@@ -1302,7 +1331,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     }
     const rightBody = rightTable.createEl("tbody");
     for (const { item } of flatItems) {
-      const row = rightBody.createEl("tr");
+      const row = rightBody.createEl("tr", { attr: { "data-gantt-id": item.id } });
       for (let di = 0; di < dates.length; di++) {
         const d = dates[di];
         const cell = row.createEl("td", {
@@ -1358,6 +1387,47 @@ var KanbanView = class extends import_obsidian.ItemView {
   /**
    * Setup drag on a gantt bar to move the entire period.
    */
+  /**
+   * Update gantt bar cells in-place without re-rendering the whole view.
+   * Finds the row by item id and toggles bar visibility per cell.
+   */
+  updateGanttRowInPlace(item, dates) {
+    const row = this.contentEl.querySelector(
+      `.kanban-matsuo-gantt-table-right tbody tr[data-gantt-id="${item.id}"]`
+    );
+    if (!row) return;
+    const cells = row.querySelectorAll(".kanban-matsuo-gantt-cell");
+    const start = item.startDate || item.endDate;
+    const end = item.endDate || item.startDate;
+    cells.forEach((cell, i) => {
+      const d = dates[i];
+      if (!d) return;
+      const existing = cell.querySelector(".kanban-matsuo-gantt-bar");
+      const inRange = start && end && d >= start && d <= end;
+      if (inRange && !existing) {
+        const bar = cell.createDiv({ cls: "kanban-matsuo-gantt-bar" });
+        if (item.checked) bar.addClass("kanban-matsuo-gantt-bar-done");
+        if (d === start) {
+          const label = item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim();
+          bar.setAttribute("data-label", label);
+          bar.createDiv({ cls: "kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-left" });
+        }
+        if (d === end) {
+          bar.createDiv({ cls: "kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-right" });
+        }
+      } else if (!inRange && existing) {
+        existing.remove();
+      } else if (inRange && existing) {
+        const bar = existing;
+        if (d === start) {
+          const label = item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim();
+          bar.setAttribute("data-label", label);
+        } else {
+          bar.removeAttribute("data-label");
+        }
+      }
+    });
+  }
   setupGanttBarDrag(bar, item, dates) {
     let startX = 0;
     let origStart = "";
@@ -1369,6 +1439,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       startX = e.clientX;
       origStart = item.startDate || "";
       origEnd = item.endDate || "";
+      this.ganttDragging = true;
       const cellWidth = 28;
       const onMouseMove = (ev) => {
         const dx = ev.clientX - startX;
@@ -1382,20 +1453,19 @@ var KanbanView = class extends import_obsidian.ItemView {
         item.startDate = dates[newSi];
         item.endDate = dates[newEi];
         this.updateItemTitleDates(item);
-        this.render();
+        this.updateGanttRowInPlace(item, dates);
       };
       const onMouseUp = () => {
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseup", onMouseUp);
+        this.ganttDragging = false;
         this.scheduleSave();
+        this.render();
       };
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
     });
   }
-  /**
-   * Setup resize handle on gantt bar to change start or end date.
-   */
   setupGanttResize(handle, item, dates, edge) {
     handle.addEventListener("mousedown", (e) => {
       e.preventDefault();
@@ -1403,6 +1473,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       const startX = e.clientX;
       const origDate = edge === "start" ? item.startDate || "" : item.endDate || "";
       const cellWidth = 28;
+      this.ganttDragging = true;
       const onMouseMove = (ev) => {
         const dx = ev.clientX - startX;
         const dayShift = Math.round(dx / cellWidth);
@@ -1419,12 +1490,14 @@ var KanbanView = class extends import_obsidian.ItemView {
           item.endDate = newDate;
         }
         this.updateItemTitleDates(item);
-        this.render();
+        this.updateGanttRowInPlace(item, dates);
       };
       const onMouseUp = () => {
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseup", onMouseUp);
+        this.ganttDragging = false;
         this.scheduleSave();
+        this.render();
       };
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
