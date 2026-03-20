@@ -36,22 +36,24 @@ describe('KanbanItem interface', () => {
 			title: 'Test card #bug @{2026-03-20}',
 			body: 'Description',
 			tags: ['bug'],
-			dueDate: '2026-03-20',
+			startDate: null,
+			endDate: '2026-03-20',
 			checked: false,
 			archived: false,
+			children: [],
 		};
 		expect(item.id).toBe('test-id');
 		expect(item.tags).toContain('bug');
-		expect(item.dueDate).toBe('2026-03-20');
+		expect(item.endDate).toBe('2026-03-20');
 		expect(item.body).toBe('Description');
 	});
 
-	it('supports null dueDate', () => {
+	it('supports null endDate', () => {
 		const item: KanbanItem = {
 			id: 'x', title: 'No date', body: '',
-			tags: [], dueDate: null, checked: false, archived: false,
+			tags: [], startDate: null, endDate: null, checked: false, archived: false, children: [],
 		};
-		expect(item.dueDate).toBeNull();
+		expect(item.endDate).toBeNull();
 	});
 });
 
@@ -61,7 +63,7 @@ describe('KanbanLane interface', () => {
 			id: 'lane-1',
 			title: 'To Do',
 			items: [
-				{ id: '1', title: 'Task', body: '', tags: [], dueDate: null, checked: false, archived: false },
+				{ id: '1', title: 'Task', body: '', tags: [], startDate: null, endDate: null, checked: false, archived: false, children: [] },
 			],
 			collapsed: false,
 			wipLimit: 5,

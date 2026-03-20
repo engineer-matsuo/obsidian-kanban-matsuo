@@ -11,12 +11,14 @@ export function generateId(): string {
  * Create a new empty KanbanItem.
  */
 export function createItem(title: string): KanbanItem {
+	const dates = extractDates(title);
 	return {
 		id: generateId(),
 		title: title.trim(),
 		body: '',
 		tags: extractTags(title),
-		dueDate: extractDate(title),
+		startDate: dates.start,
+		endDate: dates.end,
 		checked: false,
 		archived: false,
 		children: [],
@@ -55,16 +57,30 @@ export function extractTags(text: string): string[] {
 }
 
 /**
- * Extract date in format @{YYYY-MM-DD} or 📅 YYYY-MM-DD from text.
+ * Extract dates from text.
+ * Formats:
+ *   @{2026-03-20~2026-03-25}  → start + end
+ *   @{2026-03-20}             → end only (backward compat)
+ *   📅 2026-03-20             → end only (backward compat)
  */
-export function extractDate(text: string): string | null {
-	const atMatch = text.match(/@\{(\d{4}-\d{2}-\d{2})\}/);
-	if (atMatch) return atMatch[1];
+export function extractDates(text: string): { start: string | null; end: string | null } {
+	// Range format: @{start~end}
+	const rangeMatch = text.match(/@\{(\d{4}-\d{2}-\d{2})~(\d{4}-\d{2}-\d{2})\}/);
+	if (rangeMatch) return { start: rangeMatch[1], end: rangeMatch[2] };
 
+	// Start only: @{start~}
+	const startOnlyMatch = text.match(/@\{(\d{4}-\d{2}-\d{2})~\}/);
+	if (startOnlyMatch) return { start: startOnlyMatch[1], end: null };
+
+	// Single date: @{date}
+	const singleMatch = text.match(/@\{(\d{4}-\d{2}-\d{2})\}/);
+	if (singleMatch) return { start: null, end: singleMatch[1] };
+
+	// Emoji: 📅 date
 	const emojiMatch = text.match(/📅\s*(\d{4}-\d{2}-\d{2})/);
-	if (emojiMatch) return emojiMatch[1];
+	if (emojiMatch) return { start: null, end: emojiMatch[1] };
 
-	return null;
+	return { start: null, end: null };
 }
 
 /**

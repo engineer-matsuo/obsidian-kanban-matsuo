@@ -52,6 +52,9 @@ export class KanbanView extends ItemView {
 	// Rich card display toggle
 	private richMode = false;
 
+	// WBS view toggle
+	private showWbs = false;
+
 	// External change detection (counter to handle concurrent saves)
 	private ignoreModifyCount = 0;
 
@@ -184,6 +187,11 @@ export class KanbanView extends ItemView {
 		}
 
 		this.renderAddLaneButton(this.boardEl);
+
+		// WBS section
+		if (this.showWbs) {
+			this.renderWbs(this.contentEl);
+		}
 	}
 
 	private renderToolbar(container: HTMLElement): void {
@@ -246,6 +254,20 @@ export class KanbanView extends ItemView {
 			this.richMode = !this.richMode;
 			this.render();
 		});
+
+		// WBS toggle
+		const wbsToggle = rightGroup.createEl('button', {
+			cls: `kanban-matsuo-wbs-toggle clickable-icon${this.showWbs ? ' kanban-matsuo-wbs-toggle-active' : ''}`,
+			attr: {
+				'aria-label': this.showWbs ? t('wbs.toggle-hide') : t('wbs.toggle-show'),
+				'data-tooltip-position': 'top',
+			},
+		});
+		setIcon(wbsToggle, 'table');
+		wbsToggle.addEventListener('click', () => {
+			this.showWbs = !this.showWbs;
+			this.render();
+		});
 	}
 
 	private showTagFilterMenu(e: MouseEvent | Event): void {
@@ -295,10 +317,10 @@ export class KanbanView extends ItemView {
 		if (this.filterMode === 'date') {
 			const today = this.getToday();
 			switch (this.filterValue) {
-				case 'overdue': return item.dueDate !== null && item.dueDate < today;
-				case 'today': return item.dueDate === today;
+				case 'overdue': return item.endDate !== null && item.endDate < today;
+				case 'today': return item.endDate === today;
 				case 'week': {
-					if (!item.dueDate) return false;
+					if (!item.endDate) return false;
 					const now = new Date(today + 'T00:00:00');
 					const day = now.getDay(); // 0=Sun,1=Mon,...,6=Sat
 					const diffToMon = day === 0 ? -6 : 1 - day;
@@ -310,9 +332,9 @@ export class KanbanView extends ItemView {
 						const dd = String(d.getDate()).padStart(2, '0');
 						return `${y}-${m}-${dd}`;
 					};
-					return item.dueDate >= fmt(monday) && item.dueDate <= fmt(sunday);
+					return item.endDate >= fmt(monday) && item.endDate <= fmt(sunday);
 				}
-				case 'none': return item.dueDate === null;
+				case 'none': return item.endDate === null;
 			}
 		}
 		return true;
@@ -495,7 +517,7 @@ export class KanbanView extends ItemView {
 		const bodyEl = cardEl.createDiv({ cls: 'kanban-matsuo-card-body' });
 
 		// Title as clickable link to open editor
-		const displayTitle = item.title.replace(/#[^\s#]+/g, '').replace(/@\{\d{4}-\d{2}-\d{2}\}/g, '').trim() || item.title;
+		const displayTitle = item.title.replace(/#[^\s#]+/g, '').replace(/@\{\d{4}-\d{2}-\d{2}(?:~\d{4}-\d{2}-\d{2})?\}/g, '').trim() || item.title;
 		const titleLink = bodyEl.createEl('a', {
 			cls: 'kanban-matsuo-card-title-link',
 			text: displayTitle,
@@ -521,13 +543,23 @@ export class KanbanView extends ItemView {
 			}
 		}
 
-		// Due date (always shown)
-		if (this.board!.settings.showDates && item.dueDate) {
+		// Dates (always shown)
+		if (this.board!.settings.showDates && (item.startDate || item.endDate)) {
 			const dateEl = bodyEl.createDiv({ cls: 'kanban-matsuo-card-date' });
 			const today = this.getToday();
-			if (item.dueDate < today) dateEl.addClass('kanban-matsuo-date-overdue');
-			else if (item.dueDate === today) dateEl.addClass('kanban-matsuo-date-today');
-			dateEl.setText(`📅 ${item.dueDate}`);
+
+			if (item.endDate && item.endDate < today) dateEl.addClass('kanban-matsuo-date-overdue');
+			else if (item.endDate === today) dateEl.addClass('kanban-matsuo-date-today');
+
+			let dateText = '📅 ';
+			if (item.startDate && item.endDate) {
+				dateText += `${item.startDate} → ${item.endDate}`;
+			} else if (item.startDate) {
+				dateText += `${item.startDate} →`;
+			} else {
+				dateText += `→ ${item.endDate}`;
+			}
+			dateEl.setText(dateText);
 		}
 
 		// Description (rich mode only)
@@ -712,6 +744,87 @@ export class KanbanView extends ItemView {
 			total += sub.total;
 		}
 		return { done, total };
+	}
+
+	/**
+	 * Render WBS (Work Breakdown Structure) table below the board.
+	 */
+	private renderWbs(container: HTMLElement): void {
+		if (!this.board) return;
+
+		const wbsContainer = container.createDiv({ cls: 'kanban-matsuo-wbs' });
+		wbsContainer.createEl('h3', { text: t('wbs.title'), cls: 'kanban-matsuo-wbs-heading' });
+
+		const table = wbsContainer.createEl('table', { cls: 'kanban-matsuo-wbs-table' });
+
+		// Header
+		const thead = table.createEl('thead');
+		const headerRow = thead.createEl('tr');
+		const cols = ['wbs.col-id', 'wbs.col-task', 'wbs.col-lane', 'wbs.col-tags', 'wbs.col-start', 'wbs.col-end', 'wbs.col-status', 'wbs.col-progress'] as const;
+		for (const col of cols) {
+			headerRow.createEl('th', { text: t(col) });
+		}
+
+		// Body
+		const tbody = table.createEl('tbody');
+		let rowNum = 0;
+
+		for (const lane of this.board.lanes) {
+			for (const item of lane.items) {
+				if (item.archived) continue;
+				this.renderWbsRow(tbody, item, lane.title, 0, ++rowNum);
+			}
+		}
+	}
+
+	private renderWbsRow(tbody: HTMLElement, item: KanbanItem, laneTitle: string, depth: number, num: number): number {
+		const row = tbody.createEl('tr', { cls: item.checked ? 'kanban-matsuo-wbs-done' : '' });
+
+		// #
+		row.createEl('td', { text: String(num) });
+
+		// Task (indented by depth)
+		const taskCell = row.createEl('td');
+		const indent = '  '.repeat(depth);
+		const prefix = depth > 0 ? '└ ' : '';
+		taskCell.setText(`${indent}${prefix}${item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim()}`);
+
+		// Lane
+		row.createEl('td', { text: laneTitle });
+
+		// Tags
+		row.createEl('td', { text: item.tags.join(', ') });
+
+		// Start
+		row.createEl('td', { text: item.startDate || '' });
+
+		// End
+		const endCell = row.createEl('td', { text: item.endDate || '' });
+		if (item.endDate) {
+			const today = this.getToday();
+			if (item.endDate < today && !item.checked) endCell.addClass('kanban-matsuo-date-overdue');
+		}
+
+		// Status
+		row.createEl('td', { text: item.checked ? t('wbs.status-done') : t('wbs.status-open') });
+
+		// Progress
+		if (item.children.length > 0) {
+			const { done, total } = this.countChildren(item.children);
+			const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+			row.createEl('td', { text: `${pct}%` });
+		} else {
+			row.createEl('td', { text: item.checked ? '100%' : '0%' });
+		}
+
+		// Children
+		for (const child of item.children) {
+			if (!child.archived) {
+				num = this.renderWbsRow(tbody, child, laneTitle, depth + 1, ++num);
+			}
+		}
+
+		return num;
 	}
 
 	/** Setup touch drag for lane reorder (mobile) */
@@ -1214,18 +1327,23 @@ class CardEditorModal extends Modal {
 		});
 		(tagsInput as HTMLInputElement).value = this.item.tags.join(', ');
 
-		// Due date
-		const dateSetting = new Setting(contentEl)
-			.setName(t('card-editor.due-date'))
-			.setDesc(t('card-editor.due-date-desc'));
-		const dateInput = dateSetting.controlEl.createEl('input', {
+		// Start date
+		const startSetting = new Setting(contentEl)
+			.setName(t('card-editor.start-date'));
+		const startInput = startSetting.controlEl.createEl('input', {
 			cls: 'kanban-matsuo-editor-input',
-			attr: {
-				type: 'date',
-				'aria-label': t('card-editor.due-date'),
-			},
+			attr: { type: 'date', 'aria-label': t('card-editor.start-date') },
 		});
-		(dateInput as HTMLInputElement).value = this.item.dueDate || '';
+		(startInput as HTMLInputElement).value = this.item.startDate || '';
+
+		// End date
+		const endSetting = new Setting(contentEl)
+			.setName(t('card-editor.end-date'));
+		const endInput = endSetting.controlEl.createEl('input', {
+			cls: 'kanban-matsuo-editor-input',
+			attr: { type: 'date', 'aria-label': t('card-editor.end-date') },
+		});
+		(endInput as HTMLInputElement).value = this.item.endDate || '';
 
 		// Body / description
 		const bodySetting = new Setting(contentEl)
@@ -1245,7 +1363,7 @@ class CardEditorModal extends Modal {
 		new Setting(contentEl)
 			.addButton((btn) => {
 				btn.setButtonText(t('modal.save')).setCta().onClick(() => {
-					this.saveAndClose(titleInput, tagsInput as HTMLInputElement, dateInput as HTMLInputElement, bodyInput);
+					this.saveAndClose(titleInput, tagsInput as HTMLInputElement, startInput as HTMLInputElement, endInput as HTMLInputElement, bodyInput);
 				});
 			})
 			.addButton((btn) => {
@@ -1259,30 +1377,36 @@ class CardEditorModal extends Modal {
 	private saveAndClose(
 		titleEl: HTMLTextAreaElement,
 		tagsEl: HTMLInputElement,
-		dateEl: HTMLInputElement,
+		startEl: HTMLInputElement,
+		endEl: HTMLInputElement,
 		bodyEl: HTMLTextAreaElement,
 	): void {
 		const title = titleEl.value.trim();
 		if (!title) return;
 
-		// Rebuild the item title with embedded tags and date
 		const tags = tagsEl.value
 			.split(',')
 			.map((s) => s.trim().replace(/^#/, ''))
 			.filter((s) => s.length > 0);
-		const dueDate = dateEl.value || null;
+		const startDate = startEl.value || null;
+		const endDate = endEl.value || null;
 
 		let fullTitle = title;
 		if (tags.length > 0) {
 			fullTitle += ' ' + tags.map((tag) => `#${tag}`).join(' ');
 		}
-		if (dueDate) {
-			fullTitle += ` @{${dueDate}}`;
+		if (startDate && endDate) {
+			fullTitle += ` @{${startDate}~${endDate}}`;
+		} else if (endDate) {
+			fullTitle += ` @{${endDate}}`;
+		} else if (startDate) {
+			fullTitle += ` @{${startDate}~}`;
 		}
 
 		this.item.title = fullTitle;
 		this.item.tags = tags;
-		this.item.dueDate = dueDate;
+		this.item.startDate = startDate;
+		this.item.endDate = endDate;
 		this.item.body = bodyEl.value.trim();
 
 		this.onSave(this.item);

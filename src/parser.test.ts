@@ -6,7 +6,7 @@ import {
 	createLane,
 	createBoard,
 	extractTags,
-	extractDate,
+	extractDates,
 	generateId,
 } from './parser';
 
@@ -47,21 +47,25 @@ describe('extractTags', () => {
 	});
 });
 
-describe('extractDate', () => {
-	it('extracts @{YYYY-MM-DD} format', () => {
-		expect(extractDate('Task @{2024-03-15}')).toBe('2024-03-15');
+describe('extractDates', () => {
+	it('extracts single @{YYYY-MM-DD} as endDate', () => {
+		expect(extractDates('Task @{2024-03-15}')).toEqual({ start: null, end: '2024-03-15' });
 	});
 
-	it('extracts emoji date format', () => {
-		expect(extractDate('Task 📅 2024-03-15')).toBe('2024-03-15');
+	it('extracts range @{start~end}', () => {
+		expect(extractDates('Task @{2024-03-01~2024-03-15}')).toEqual({ start: '2024-03-01', end: '2024-03-15' });
 	});
 
-	it('returns null when no date', () => {
-		expect(extractDate('Just a task')).toBeNull();
+	it('extracts start only @{start~}', () => {
+		expect(extractDates('Task @{2024-03-01~}')).toEqual({ start: '2024-03-01', end: null });
 	});
 
-	it('prefers @{} format over emoji', () => {
-		expect(extractDate('Task @{2024-01-01} 📅 2024-02-02')).toBe('2024-01-01');
+	it('extracts emoji date as endDate', () => {
+		expect(extractDates('Task 📅 2024-03-15')).toEqual({ start: null, end: '2024-03-15' });
+	});
+
+	it('returns nulls when no date', () => {
+		expect(extractDates('Just a task')).toEqual({ start: null, end: null });
 	});
 });
 
@@ -82,7 +86,7 @@ describe('createItem', () => {
 
 	it('extracts date from title', () => {
 		const item = createItem('Due @{2024-06-01}');
-		expect(item.dueDate).toBe('2024-06-01');
+		expect(item.endDate).toBe('2024-06-01');
 	});
 
 	it('trims whitespace', () => {
@@ -166,11 +170,11 @@ lane-width: 300
 		const board = parseMarkdown(md);
 		const item1 = board.lanes[0].items[0];
 		expect(item1.tags).toContain('bug');
-		expect(item1.dueDate).toBe('2024-05-01');
+		expect(item1.endDate).toBe('2024-05-01');
 
 		const item2 = board.lanes[0].items[1];
 		expect(item2.tags).toContain('feature');
-		expect(item2.dueDate).toBeNull();
+		expect(item2.endDate).toBeNull();
 	});
 
 	it('handles empty content', () => {
@@ -499,7 +503,7 @@ describe('round-trip', () => {
 		expect(parsed.lanes).toHaveLength(3);
 		expect(parsed.lanes[0].items).toHaveLength(2);
 		expect(parsed.lanes[0].items[0].tags).toContain('bug');
-		expect(parsed.lanes[0].items[1].dueDate).toBe('2024-12-25');
+		expect(parsed.lanes[0].items[1].endDate).toBe('2024-12-25');
 		expect(parsed.lanes[2].items[0].checked).toBe(true);
 	});
 });

@@ -636,6 +636,69 @@ span.kanban-matsuo-subtask-done {
 	margin-left: calc(var(--card-depth, 0) * var(--size-4-4));
 }
 
+/* WBS toggle button */
+.kanban-matsuo-wbs-toggle {
+	min-width: 44px;
+	min-height: 44px;
+}
+
+.kanban-matsuo-wbs-toggle-active {
+	color: var(--interactive-accent);
+}
+
+/* WBS section */
+.kanban-matsuo-wbs {
+	border-top: 2px solid var(--background-modifier-border);
+	padding: var(--size-4-3);
+	overflow-x: auto;
+	flex-shrink: 0;
+	max-height: 40vh;
+	overflow-y: auto;
+}
+
+.kanban-matsuo-wbs-heading {
+	margin: 0 0 var(--size-4-2) 0;
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.kanban-matsuo-wbs-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--font-ui-small);
+}
+
+.kanban-matsuo-wbs-table th {
+	text-align: left;
+	padding: var(--size-2-2) var(--size-4-2);
+	border-bottom: 2px solid var(--background-modifier-border);
+	color: var(--text-muted);
+	font-weight: var(--font-semibold);
+	white-space: nowrap;
+}
+
+.kanban-matsuo-wbs-table td {
+	padding: var(--size-2-2) var(--size-4-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+	color: var(--text-normal);
+	white-space: nowrap;
+}
+
+.kanban-matsuo-wbs-table td:nth-child(2) {
+	white-space: pre;
+	font-family: var(--font-monospace);
+}
+
+.kanban-matsuo-wbs-table tr:hover {
+	background: var(--background-modifier-hover);
+}
+
+.kanban-matsuo-wbs-done td {
+	color: var(--text-muted);
+	text-decoration: line-through;
+}
+
 /* Mobile responsive */
 @media (max-width: 600px) {
 	.kanban-matsuo-board {

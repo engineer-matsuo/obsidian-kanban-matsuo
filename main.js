@@ -57,12 +57,14 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 function createItem(title) {
+  const dates = extractDates(title);
   return {
     id: generateId(),
     title: title.trim(),
     body: "",
     tags: extractTags(title),
-    dueDate: extractDate(title),
+    startDate: dates.start,
+    endDate: dates.end,
     checked: false,
     archived: false,
     children: []
@@ -87,12 +89,16 @@ function extractTags(text) {
   const matches = text.match(/#[^\s#]+/g);
   return matches ? matches.map((t2) => t2.slice(1)) : [];
 }
-function extractDate(text) {
-  const atMatch = text.match(/@\{(\d{4}-\d{2}-\d{2})\}/);
-  if (atMatch) return atMatch[1];
+function extractDates(text) {
+  const rangeMatch = text.match(/@\{(\d{4}-\d{2}-\d{2})~(\d{4}-\d{2}-\d{2})\}/);
+  if (rangeMatch) return { start: rangeMatch[1], end: rangeMatch[2] };
+  const startOnlyMatch = text.match(/@\{(\d{4}-\d{2}-\d{2})~\}/);
+  if (startOnlyMatch) return { start: startOnlyMatch[1], end: null };
+  const singleMatch = text.match(/@\{(\d{4}-\d{2}-\d{2})\}/);
+  if (singleMatch) return { start: null, end: singleMatch[1] };
   const emojiMatch = text.match(/📅\s*(\d{4}-\d{2}-\d{2})/);
-  if (emojiMatch) return emojiMatch[1];
-  return null;
+  if (emojiMatch) return { start: null, end: emojiMatch[1] };
+  return { start: null, end: null };
 }
 function parseMarkdown(content) {
   const board = {
@@ -407,7 +413,24 @@ var en = {
   "card.outdent": "Outdent (promote)",
   // Rich card toggle
   "board.rich-mode-on": "Rich card view",
-  "board.rich-mode-off": "Compact card view"
+  "board.rich-mode-off": "Compact card view",
+  // Date range
+  "card-editor.start-date": "Start date",
+  "card-editor.end-date": "End date",
+  // WBS
+  "wbs.title": "WBS",
+  "wbs.toggle-show": "Show WBS",
+  "wbs.toggle-hide": "Hide WBS",
+  "wbs.col-id": "#",
+  "wbs.col-task": "Task",
+  "wbs.col-lane": "Lane",
+  "wbs.col-tags": "Tags",
+  "wbs.col-start": "Start",
+  "wbs.col-end": "End",
+  "wbs.col-status": "Status",
+  "wbs.col-progress": "Progress",
+  "wbs.status-done": "Done",
+  "wbs.status-open": "Open"
 };
 
 // src/lang/ja.ts
@@ -529,7 +552,24 @@ var ja = {
   "card.outdent": "\u6BB5\u4E0A\u3052\uFF08\u5143\u306B\u623B\u3059\uFF09",
   // Rich card toggle
   "board.rich-mode-on": "\u30EA\u30C3\u30C1\u30AB\u30FC\u30C9\u8868\u793A",
-  "board.rich-mode-off": "\u30B3\u30F3\u30D1\u30AF\u30C8\u30AB\u30FC\u30C9\u8868\u793A"
+  "board.rich-mode-off": "\u30B3\u30F3\u30D1\u30AF\u30C8\u30AB\u30FC\u30C9\u8868\u793A",
+  // Date range
+  "card-editor.start-date": "\u958B\u59CB\u65E5",
+  "card-editor.end-date": "\u7D42\u4E86\u65E5",
+  // WBS
+  "wbs.title": "WBS",
+  "wbs.toggle-show": "WBS\u3092\u8868\u793A",
+  "wbs.toggle-hide": "WBS\u3092\u975E\u8868\u793A",
+  "wbs.col-id": "#",
+  "wbs.col-task": "\u30BF\u30B9\u30AF",
+  "wbs.col-lane": "\u30EC\u30FC\u30F3",
+  "wbs.col-tags": "\u30BF\u30B0",
+  "wbs.col-start": "\u958B\u59CB",
+  "wbs.col-end": "\u7D42\u4E86",
+  "wbs.col-status": "\u72B6\u614B",
+  "wbs.col-progress": "\u9032\u6357",
+  "wbs.status-done": "\u5B8C\u4E86",
+  "wbs.status-open": "\u672A\u5B8C\u4E86"
 };
 
 // src/lang/index.ts
@@ -583,6 +623,8 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.filterValue = "";
     // Rich card display toggle
     this.richMode = false;
+    // WBS view toggle
+    this.showWbs = false;
     // External change detection (counter to handle concurrent saves)
     this.ignoreModifyCount = 0;
     // Drag state for indent detection
@@ -693,6 +735,9 @@ var KanbanView = class extends import_obsidian.ItemView {
       this.renderLane(this.boardEl, lane);
     }
     this.renderAddLaneButton(this.boardEl);
+    if (this.showWbs) {
+      this.renderWbs(this.contentEl);
+    }
   }
   renderToolbar(container) {
     const leftGroup = container.createDiv({ cls: "kanban-matsuo-toolbar-left" });
@@ -746,6 +791,18 @@ var KanbanView = class extends import_obsidian.ItemView {
       this.richMode = !this.richMode;
       this.render();
     });
+    const wbsToggle = rightGroup.createEl("button", {
+      cls: `kanban-matsuo-wbs-toggle clickable-icon${this.showWbs ? " kanban-matsuo-wbs-toggle-active" : ""}`,
+      attr: {
+        "aria-label": this.showWbs ? t("wbs.toggle-hide") : t("wbs.toggle-show"),
+        "data-tooltip-position": "top"
+      }
+    });
+    (0, import_obsidian.setIcon)(wbsToggle, "table");
+    wbsToggle.addEventListener("click", () => {
+      this.showWbs = !this.showWbs;
+      this.render();
+    });
   }
   showTagFilterMenu(e) {
     if (!this.board) return;
@@ -796,11 +853,11 @@ var KanbanView = class extends import_obsidian.ItemView {
       const today = this.getToday();
       switch (this.filterValue) {
         case "overdue":
-          return item.dueDate !== null && item.dueDate < today;
+          return item.endDate !== null && item.endDate < today;
         case "today":
-          return item.dueDate === today;
+          return item.endDate === today;
         case "week": {
-          if (!item.dueDate) return false;
+          if (!item.endDate) return false;
           const now = /* @__PURE__ */ new Date(today + "T00:00:00");
           const day = now.getDay();
           const diffToMon = day === 0 ? -6 : 1 - day;
@@ -814,10 +871,10 @@ var KanbanView = class extends import_obsidian.ItemView {
             const dd = String(d.getDate()).padStart(2, "0");
             return `${y}-${m}-${dd}`;
           };
-          return item.dueDate >= fmt(monday) && item.dueDate <= fmt(sunday);
+          return item.endDate >= fmt(monday) && item.endDate <= fmt(sunday);
         }
         case "none":
-          return item.dueDate === null;
+          return item.endDate === null;
       }
     }
     return true;
@@ -999,7 +1056,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       });
     }
     const bodyEl = cardEl.createDiv({ cls: "kanban-matsuo-card-body" });
-    const displayTitle = item.title.replace(/#[^\s#]+/g, "").replace(/@\{\d{4}-\d{2}-\d{2}\}/g, "").trim() || item.title;
+    const displayTitle = item.title.replace(/#[^\s#]+/g, "").replace(/@\{\d{4}-\d{2}-\d{2}(?:~\d{4}-\d{2}-\d{2})?\}/g, "").trim() || item.title;
     const titleLink = bodyEl.createEl("a", {
       cls: "kanban-matsuo-card-title-link",
       text: displayTitle,
@@ -1026,12 +1083,20 @@ var KanbanView = class extends import_obsidian.ItemView {
         });
       }
     }
-    if (this.board.settings.showDates && item.dueDate) {
+    if (this.board.settings.showDates && (item.startDate || item.endDate)) {
       const dateEl = bodyEl.createDiv({ cls: "kanban-matsuo-card-date" });
       const today = this.getToday();
-      if (item.dueDate < today) dateEl.addClass("kanban-matsuo-date-overdue");
-      else if (item.dueDate === today) dateEl.addClass("kanban-matsuo-date-today");
-      dateEl.setText(`\u{1F4C5} ${item.dueDate}`);
+      if (item.endDate && item.endDate < today) dateEl.addClass("kanban-matsuo-date-overdue");
+      else if (item.endDate === today) dateEl.addClass("kanban-matsuo-date-today");
+      let dateText = "\u{1F4C5} ";
+      if (item.startDate && item.endDate) {
+        dateText += `${item.startDate} \u2192 ${item.endDate}`;
+      } else if (item.startDate) {
+        dateText += `${item.startDate} \u2192`;
+      } else {
+        dateText += `\u2192 ${item.endDate}`;
+      }
+      dateEl.setText(dateText);
     }
     if (this.richMode && item.body) {
       const descEl = bodyEl.createDiv({ cls: "kanban-matsuo-card-description" });
@@ -1174,6 +1239,59 @@ var KanbanView = class extends import_obsidian.ItemView {
       total += sub.total;
     }
     return { done, total };
+  }
+  /**
+   * Render WBS (Work Breakdown Structure) table below the board.
+   */
+  renderWbs(container) {
+    if (!this.board) return;
+    const wbsContainer = container.createDiv({ cls: "kanban-matsuo-wbs" });
+    wbsContainer.createEl("h3", { text: t("wbs.title"), cls: "kanban-matsuo-wbs-heading" });
+    const table = wbsContainer.createEl("table", { cls: "kanban-matsuo-wbs-table" });
+    const thead = table.createEl("thead");
+    const headerRow = thead.createEl("tr");
+    const cols = ["wbs.col-id", "wbs.col-task", "wbs.col-lane", "wbs.col-tags", "wbs.col-start", "wbs.col-end", "wbs.col-status", "wbs.col-progress"];
+    for (const col of cols) {
+      headerRow.createEl("th", { text: t(col) });
+    }
+    const tbody = table.createEl("tbody");
+    let rowNum = 0;
+    for (const lane of this.board.lanes) {
+      for (const item of lane.items) {
+        if (item.archived) continue;
+        this.renderWbsRow(tbody, item, lane.title, 0, ++rowNum);
+      }
+    }
+  }
+  renderWbsRow(tbody, item, laneTitle, depth, num) {
+    const row = tbody.createEl("tr", { cls: item.checked ? "kanban-matsuo-wbs-done" : "" });
+    row.createEl("td", { text: String(num) });
+    const taskCell = row.createEl("td");
+    const indent = "  ".repeat(depth);
+    const prefix = depth > 0 ? "\u2514 " : "";
+    taskCell.setText(`${indent}${prefix}${item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim()}`);
+    row.createEl("td", { text: laneTitle });
+    row.createEl("td", { text: item.tags.join(", ") });
+    row.createEl("td", { text: item.startDate || "" });
+    const endCell = row.createEl("td", { text: item.endDate || "" });
+    if (item.endDate) {
+      const today = this.getToday();
+      if (item.endDate < today && !item.checked) endCell.addClass("kanban-matsuo-date-overdue");
+    }
+    row.createEl("td", { text: item.checked ? t("wbs.status-done") : t("wbs.status-open") });
+    if (item.children.length > 0) {
+      const { done, total } = this.countChildren(item.children);
+      const pct = total > 0 ? Math.round(done / total * 100) : 0;
+      row.createEl("td", { text: `${pct}%` });
+    } else {
+      row.createEl("td", { text: item.checked ? "100%" : "0%" });
+    }
+    for (const child of item.children) {
+      if (!child.archived) {
+        num = this.renderWbsRow(tbody, child, laneTitle, depth + 1, ++num);
+      }
+    }
+    return num;
   }
   /** Setup touch drag for lane reorder (mobile) */
   setupTouchDrag(handle, el, lane) {
@@ -1662,15 +1780,18 @@ var CardEditorModal = class extends import_obsidian.Modal {
       }
     });
     tagsInput.value = this.item.tags.join(", ");
-    const dateSetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.due-date")).setDesc(t("card-editor.due-date-desc"));
-    const dateInput = dateSetting.controlEl.createEl("input", {
+    const startSetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.start-date"));
+    const startInput = startSetting.controlEl.createEl("input", {
       cls: "kanban-matsuo-editor-input",
-      attr: {
-        type: "date",
-        "aria-label": t("card-editor.due-date")
-      }
+      attr: { type: "date", "aria-label": t("card-editor.start-date") }
     });
-    dateInput.value = this.item.dueDate || "";
+    startInput.value = this.item.startDate || "";
+    const endSetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.end-date"));
+    const endInput = endSetting.controlEl.createEl("input", {
+      cls: "kanban-matsuo-editor-input",
+      attr: { type: "date", "aria-label": t("card-editor.end-date") }
+    });
+    endInput.value = this.item.endDate || "";
     const bodySetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.body"));
     const bodyInput = bodySetting.controlEl.createEl("textarea", {
       cls: "kanban-matsuo-editor-textarea",
@@ -1683,28 +1804,34 @@ var CardEditorModal = class extends import_obsidian.Modal {
     bodyInput.value = this.item.body || "";
     new import_obsidian.Setting(contentEl).addButton((btn) => {
       btn.setButtonText(t("modal.save")).setCta().onClick(() => {
-        this.saveAndClose(titleInput, tagsInput, dateInput, bodyInput);
+        this.saveAndClose(titleInput, tagsInput, startInput, endInput, bodyInput);
       });
     }).addButton((btn) => {
       btn.setButtonText(t("modal.cancel")).onClick(() => this.close());
     });
     titleInput.focus();
   }
-  saveAndClose(titleEl, tagsEl, dateEl, bodyEl) {
+  saveAndClose(titleEl, tagsEl, startEl, endEl, bodyEl) {
     const title = titleEl.value.trim();
     if (!title) return;
     const tags = tagsEl.value.split(",").map((s) => s.trim().replace(/^#/, "")).filter((s) => s.length > 0);
-    const dueDate = dateEl.value || null;
+    const startDate = startEl.value || null;
+    const endDate = endEl.value || null;
     let fullTitle = title;
     if (tags.length > 0) {
       fullTitle += " " + tags.map((tag) => `#${tag}`).join(" ");
     }
-    if (dueDate) {
-      fullTitle += ` @{${dueDate}}`;
+    if (startDate && endDate) {
+      fullTitle += ` @{${startDate}~${endDate}}`;
+    } else if (endDate) {
+      fullTitle += ` @{${endDate}}`;
+    } else if (startDate) {
+      fullTitle += ` @{${startDate}~}`;
     }
     this.item.title = fullTitle;
     this.item.tags = tags;
-    this.item.dueDate = dueDate;
+    this.item.startDate = startDate;
+    this.item.endDate = endDate;
     this.item.body = bodyEl.value.trim();
     this.onSave(this.item);
     this.close();

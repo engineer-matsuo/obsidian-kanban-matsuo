@@ -18,7 +18,7 @@ describe('KanbanItem children (subtask model)', () => {
 		const child = createItem('Child #tag @{2026-05-01}');
 		parent.children.push(child);
 		expect(parent.children[0].tags).toContain('tag');
-		expect(parent.children[0].dueDate).toBe('2026-05-01');
+		expect(parent.children[0].endDate).toBe('2026-05-01');
 		expect(parent.children[0].children).toEqual([]);
 	});
 
@@ -127,7 +127,7 @@ describe('Markdown parsing with children', () => {
 		const board = parseMarkdown(md);
 		const child = board.lanes[0].items[0].children[0];
 		expect(child.tags).toContain('bug');
-		expect(child.dueDate).toBe('2026-03-25');
+		expect(child.endDate).toBe('2026-03-25');
 	});
 
 	it('handles mixed body and children', () => {

@@ -3,7 +3,8 @@ export interface KanbanItem {
 	title: string;
 	body: string;
 	tags: string[];
-	dueDate: string | null;
+	startDate: string | null;
+	endDate: string | null;
 	checked: boolean;
 	archived: boolean;
 	children: KanbanItem[];

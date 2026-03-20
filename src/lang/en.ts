@@ -134,6 +134,25 @@ export const en = {
 	// Rich card toggle
 	'board.rich-mode-on': 'Rich card view',
 	'board.rich-mode-off': 'Compact card view',
+
+	// Date range
+	'card-editor.start-date': 'Start date',
+	'card-editor.end-date': 'End date',
+
+	// WBS
+	'wbs.title': 'WBS',
+	'wbs.toggle-show': 'Show WBS',
+	'wbs.toggle-hide': 'Hide WBS',
+	'wbs.col-id': '#',
+	'wbs.col-task': 'Task',
+	'wbs.col-lane': 'Lane',
+	'wbs.col-tags': 'Tags',
+	'wbs.col-start': 'Start',
+	'wbs.col-end': 'End',
+	'wbs.col-status': 'Status',
+	'wbs.col-progress': 'Progress',
+	'wbs.status-done': 'Done',
+	'wbs.status-open': 'Open',
 };
 
 export type TranslationKey = keyof typeof en;

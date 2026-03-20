@@ -136,4 +136,23 @@ export const ja: Record<TranslationKey, string> = {
 	// Rich card toggle
 	'board.rich-mode-on': 'リッチカード表示',
 	'board.rich-mode-off': 'コンパクトカード表示',
+
+	// Date range
+	'card-editor.start-date': '開始日',
+	'card-editor.end-date': '終了日',
+
+	// WBS
+	'wbs.title': 'WBS',
+	'wbs.toggle-show': 'WBSを表示',
+	'wbs.toggle-hide': 'WBSを非表示',
+	'wbs.col-id': '#',
+	'wbs.col-task': 'タスク',
+	'wbs.col-lane': 'レーン',
+	'wbs.col-tags': 'タグ',
+	'wbs.col-start': '開始',
+	'wbs.col-end': '終了',
+	'wbs.col-status': '状態',
+	'wbs.col-progress': '進捗',
+	'wbs.status-done': '完了',
+	'wbs.status-open': '未完了',
 };
