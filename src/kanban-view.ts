@@ -6,7 +6,6 @@ import {
 	Modal,
 	Setting,
 	setIcon,
-	MarkdownRenderer,
 	normalizePath,
 } from 'obsidian';
 import type KanbanPlugin from './main';
@@ -396,7 +395,7 @@ export class KanbanView extends ItemView {
 				if (!this.draggedItem) return;
 				e.preventDefault();
 				if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-				this.handleDragOver(e, listEl);
+				this.handleDragOver(e, listEl, lane);
 			});
 			listEl.addEventListener('dragleave', () => this.removePlaceholder());
 			listEl.addEventListener('drop', (e) => {
@@ -440,6 +439,8 @@ export class KanbanView extends ItemView {
 
 		cardEl.addEventListener('dragstart', (e) => {
 			this.draggedItem = item; this.draggedFromLane = lane;
+			this.dragOriginX = e.clientX;
+			this.dragOriginDepth = depth;
 			cardEl.addClass('kanban-matsuo-card-dragging');
 			if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.id); }
 		});
@@ -458,12 +459,6 @@ export class KanbanView extends ItemView {
 		});
 		cardEl.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showCardMenu(e, item, lane); });
 
-		// Click anywhere on card to open editor (ignore checkbox clicks)
-		cardEl.addEventListener('click', (e) => {
-			if ((e.target as HTMLElement).closest('input, a')) return;
-			this.openCardEditor(item, lane);
-		});
-
 		// Checkbox
 		if (this.board!.settings.showCheckboxes) {
 			const checkboxEl = cardEl.createEl('input', {
@@ -480,26 +475,21 @@ export class KanbanView extends ItemView {
 
 		const bodyEl = cardEl.createDiv({ cls: 'kanban-matsuo-card-body' });
 
-		// Title with Markdown rendering (wikilinks)
-		const titleEl = bodyEl.createDiv({ cls: 'kanban-matsuo-card-title' });
+		// Title as clickable link to open editor
 		const displayTitle = item.title.replace(/#[^\s#]+/g, '').replace(/@\{\d{4}-\d{2}-\d{2}\}/g, '').trim() || item.title;
-		if (this.file) {
-			MarkdownRenderer.render(this.app, displayTitle, titleEl, this.file.path, this);
-		} else {
-			titleEl.setText(displayTitle);
-		}
-
-		// Hover preview for wikilinks
-		titleEl.querySelectorAll('a.internal-link').forEach((linkEl) => {
-			linkEl.addEventListener('mouseover', (e) => {
-				const href = linkEl.getAttribute('href');
-				if (href) {
-					this.app.workspace.trigger('hover-link', {
-						event: e, source: KANBAN_VIEW_TYPE, hoverParent: this,
-						targetEl: linkEl, linktext: href, sourcePath: this.file?.path || '',
-					});
-				}
-			});
+		const titleLink = bodyEl.createEl('a', {
+			cls: 'kanban-matsuo-card-title-link',
+			text: displayTitle,
+			attr: {
+				href: '#',
+				'aria-label': t('card.edit'),
+				tabindex: '-1',
+			},
+		});
+		titleLink.addEventListener('click', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			this.openCardEditor(item, lane);
 		});
 
 
@@ -654,8 +644,10 @@ export class KanbanView extends ItemView {
 
 
 	// Drag state for indent detection
+	private dragOriginX = 0;
+	private dragOriginDepth = 0;
 
-	private handleDragOver(e: DragEvent, listEl: HTMLElement): void {
+	private handleDragOver(e: DragEvent, listEl: HTMLElement, targetLane: KanbanLane): void {
 		if (!this.draggedItem) return;
 		this.removePlaceholder();
 		this.dragPlaceholder = listEl.createDiv({ cls: 'kanban-matsuo-drop-placeholder' });
@@ -665,18 +657,20 @@ export class KanbanView extends ItemView {
 		if (afterEl) listEl.insertBefore(this.dragPlaceholder, afterEl);
 		else listEl.appendChild(this.dragPlaceholder);
 
-		// Get the card above the placeholder to determine max allowed depth
-		const aboveEl = this.getCardAbovePlaceholder(listEl);
-		const aboveDepth = aboveEl ? this.getCardDepth(aboveEl) : -1;
+		// Cross-lane: always top level (no indent)
+		const isCrossLane = this.draggedFromLane !== targetLane;
+		let targetDepth = 0;
 
-		// Calculate target depth from mouse X relative to list left edge
-		// Each indent level = 40px from the list's left edge
-		const listRect = listEl.getBoundingClientRect();
-		const relativeX = e.clientX - listRect.left;
-		let targetDepth = Math.max(0, Math.floor(relativeX / 60));
+		if (!isCrossLane) {
+			// Same lane: calculate depth from drag offset
+			const aboveEl = this.getCardAbovePlaceholder(listEl);
+			const aboveDepth = aboveEl ? this.getCardDepth(aboveEl) : -1;
 
-		// Clamp: can only go 1 level deeper than the card above
-		targetDepth = Math.min(targetDepth, aboveDepth + 1);
+			const dx = e.clientX - this.dragOriginX;
+			const depthDelta = Math.round(dx / 60);
+			targetDepth = Math.max(0, this.dragOriginDepth + depthDelta);
+			targetDepth = Math.min(targetDepth, aboveDepth + 1);
+		}
 
 		this.dragPlaceholder.style.setProperty('--card-depth', `${targetDepth}`);
 		if (targetDepth > 0) {
@@ -716,13 +710,16 @@ export class KanbanView extends ItemView {
 	private handleDrop(targetLane: KanbanLane, listEl: HTMLElement): void {
 		if (!this.draggedItem || !this.draggedFromLane || !this.board) return;
 
+		const isCrossLane = this.draggedFromLane !== targetLane;
+
 		// Remove from source (could be top-level or nested)
 		this.removeItemRecursive(this.draggedFromLane.items, this.draggedItem);
 
-		// Get target depth from placeholder
-		const targetDepth = this.dragPlaceholder
-			? parseInt(this.dragPlaceholder.style.getPropertyValue('--card-depth') || '0', 10)
-			: 0;
+		// Cross-lane moves always go to top level
+		const targetDepth = isCrossLane ? 0
+			: (this.dragPlaceholder
+				? parseInt(this.dragPlaceholder.style.getPropertyValue('--card-depth') || '0', 10)
+				: 0);
 
 		// Build a flat list of visible cards with their items and depths
 		const flatList = this.buildFlatList(targetLane.items, 0);

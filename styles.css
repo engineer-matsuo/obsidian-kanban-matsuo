@@ -120,7 +120,7 @@
 .kanban-matsuo-card-list {
 	display: flex;
 	flex-direction: column;
-	gap: var(--size-4-1);
+	gap: var(--size-4-2);
 	padding: var(--size-4-2);
 	overflow-y: auto;
 	flex: 1;
@@ -181,6 +181,20 @@
 	font-size: var(--font-ui-small);
 	color: var(--text-normal);
 	word-break: break-word;
+}
+
+.kanban-matsuo-card-title-link {
+	font-size: var(--font-ui-small);
+	color: var(--text-accent);
+	text-decoration: none;
+	cursor: pointer;
+	word-break: break-word;
+	display: block;
+}
+
+.kanban-matsuo-card-title-link:hover {
+	text-decoration: underline;
+	color: var(--text-accent-hover);
 }
 
 /* Tags */
@@ -540,10 +554,10 @@ span.kanban-matsuo-subtask-done {
 
 /* Drop placeholder */
 .kanban-matsuo-drop-placeholder {
-	height: 4px;
+	height: 8px;
 	background: var(--interactive-accent);
-	border-radius: 2px;
-	margin: var(--size-2-1) 0;
+	border-radius: 4px;
+	margin: var(--size-4-1) 0;
 }
 
 .kanban-matsuo-drop-placeholder-indented {

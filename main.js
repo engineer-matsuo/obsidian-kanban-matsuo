@@ -571,6 +571,9 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.filterValue = "";
     // External change detection (counter to handle concurrent saves)
     this.ignoreModifyCount = 0;
+    // Drag state for indent detection
+    this.dragOriginX = 0;
+    this.dragOriginDepth = 0;
     this.plugin = plugin;
   }
   getViewType() {
@@ -888,7 +891,7 @@ var KanbanView = class extends import_obsidian.ItemView {
         if (!this.draggedItem) return;
         e.preventDefault();
         if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-        this.handleDragOver(e, listEl);
+        this.handleDragOver(e, listEl, lane);
       });
       listEl.addEventListener("dragleave", () => this.removePlaceholder());
       listEl.addEventListener("drop", (e) => {
@@ -927,6 +930,8 @@ var KanbanView = class extends import_obsidian.ItemView {
     cardEl.addEventListener("dragstart", (e) => {
       this.draggedItem = item;
       this.draggedFromLane = lane;
+      this.dragOriginX = e.clientX;
+      this.dragOriginDepth = depth;
       cardEl.addClass("kanban-matsuo-card-dragging");
       if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = "move";
@@ -953,10 +958,6 @@ var KanbanView = class extends import_obsidian.ItemView {
       e.preventDefault();
       this.showCardMenu(e, item, lane);
     });
-    cardEl.addEventListener("click", (e) => {
-      if (e.target.closest("input, a")) return;
-      this.openCardEditor(item, lane);
-    });
     if (this.board.settings.showCheckboxes) {
       const checkboxEl = cardEl.createEl("input", {
         cls: "kanban-matsuo-card-checkbox task-list-item-checkbox",
@@ -970,28 +971,20 @@ var KanbanView = class extends import_obsidian.ItemView {
       });
     }
     const bodyEl = cardEl.createDiv({ cls: "kanban-matsuo-card-body" });
-    const titleEl = bodyEl.createDiv({ cls: "kanban-matsuo-card-title" });
     const displayTitle = item.title.replace(/#[^\s#]+/g, "").replace(/@\{\d{4}-\d{2}-\d{2}\}/g, "").trim() || item.title;
-    if (this.file) {
-      import_obsidian.MarkdownRenderer.render(this.app, displayTitle, titleEl, this.file.path, this);
-    } else {
-      titleEl.setText(displayTitle);
-    }
-    titleEl.querySelectorAll("a.internal-link").forEach((linkEl) => {
-      linkEl.addEventListener("mouseover", (e) => {
-        var _a;
-        const href = linkEl.getAttribute("href");
-        if (href) {
-          this.app.workspace.trigger("hover-link", {
-            event: e,
-            source: KANBAN_VIEW_TYPE,
-            hoverParent: this,
-            targetEl: linkEl,
-            linktext: href,
-            sourcePath: ((_a = this.file) == null ? void 0 : _a.path) || ""
-          });
-        }
-      });
+    const titleLink = bodyEl.createEl("a", {
+      cls: "kanban-matsuo-card-title-link",
+      text: displayTitle,
+      attr: {
+        href: "#",
+        "aria-label": t("card.edit"),
+        tabindex: "-1"
+      }
+    });
+    titleLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.openCardEditor(item, lane);
     });
     if (this.board.settings.showTags && item.tags.length > 0) {
       const tagsEl = bodyEl.createDiv({ cls: "kanban-matsuo-card-tags" });
@@ -1173,8 +1166,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       }
     });
   }
-  // Drag state for indent detection
-  handleDragOver(e, listEl) {
+  handleDragOver(e, listEl, targetLane) {
     if (!this.draggedItem) return;
     this.removePlaceholder();
     this.dragPlaceholder = listEl.createDiv({ cls: "kanban-matsuo-drop-placeholder" });
@@ -1182,12 +1174,16 @@ var KanbanView = class extends import_obsidian.ItemView {
     const afterEl = this.getDragAfterElement(listEl, e.clientY);
     if (afterEl) listEl.insertBefore(this.dragPlaceholder, afterEl);
     else listEl.appendChild(this.dragPlaceholder);
-    const aboveEl = this.getCardAbovePlaceholder(listEl);
-    const aboveDepth = aboveEl ? this.getCardDepth(aboveEl) : -1;
-    const listRect = listEl.getBoundingClientRect();
-    const relativeX = e.clientX - listRect.left;
-    let targetDepth = Math.max(0, Math.floor(relativeX / 60));
-    targetDepth = Math.min(targetDepth, aboveDepth + 1);
+    const isCrossLane = this.draggedFromLane !== targetLane;
+    let targetDepth = 0;
+    if (!isCrossLane) {
+      const aboveEl = this.getCardAbovePlaceholder(listEl);
+      const aboveDepth = aboveEl ? this.getCardDepth(aboveEl) : -1;
+      const dx = e.clientX - this.dragOriginX;
+      const depthDelta = Math.round(dx / 60);
+      targetDepth = Math.max(0, this.dragOriginDepth + depthDelta);
+      targetDepth = Math.min(targetDepth, aboveDepth + 1);
+    }
     this.dragPlaceholder.style.setProperty("--card-depth", `${targetDepth}`);
     if (targetDepth > 0) {
       this.dragPlaceholder.addClass("kanban-matsuo-drop-placeholder-indented");
@@ -1221,8 +1217,9 @@ var KanbanView = class extends import_obsidian.ItemView {
   }
   handleDrop(targetLane, listEl) {
     if (!this.draggedItem || !this.draggedFromLane || !this.board) return;
+    const isCrossLane = this.draggedFromLane !== targetLane;
     this.removeItemRecursive(this.draggedFromLane.items, this.draggedItem);
-    const targetDepth = this.dragPlaceholder ? parseInt(this.dragPlaceholder.style.getPropertyValue("--card-depth") || "0", 10) : 0;
+    const targetDepth = isCrossLane ? 0 : this.dragPlaceholder ? parseInt(this.dragPlaceholder.style.getPropertyValue("--card-depth") || "0", 10) : 0;
     const flatList = this.buildFlatList(targetLane.items, 0);
     const cardsBefore = [];
     if (this.dragPlaceholder) {
