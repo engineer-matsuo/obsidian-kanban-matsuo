@@ -250,6 +250,18 @@ export default class KanbanPlugin extends Plugin {
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
 		setLocale(this.settings.language);
+
+		// Refresh all open kanban views to apply new settings
+		const leaves = this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE);
+		for (const leaf of leaves) {
+			const view = leaf.view;
+			if (view instanceof KanbanView) {
+				const file = view.getFile();
+				if (file) {
+					await view.loadFile(file);
+				}
+			}
+		}
 	}
 
 	// ---------------------------------------------------------------------------

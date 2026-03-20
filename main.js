@@ -671,7 +671,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       }
     });
     titleEl.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
+      if (e.key === "Enter" && !e.isComposing) {
         e.preventDefault();
         titleEl.blur();
       }
@@ -890,7 +890,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       attr: { type: "text", placeholder: t("card.add"), "aria-label": t("card.add-to", { lane: lane.title }) }
     });
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
+      if (e.key === "Enter" && !e.isComposing) {
         const value = input.value.trim();
         if (value) {
           lane.items.push(createItem(value));
@@ -949,7 +949,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     };
     input.addEventListener("blur", finishEdit);
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
+      if (e.key === "Enter" && !e.isComposing) {
         e.preventDefault();
         input.blur();
       } else if (e.key === "Escape") {
@@ -1405,6 +1405,16 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
     setLocale(this.settings.language);
+    const leaves = this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE);
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      if (view instanceof KanbanView) {
+        const file = view.getFile();
+        if (file) {
+          await view.loadFile(file);
+        }
+      }
+    }
   }
   // ---------------------------------------------------------------------------
   // Private helpers

@@ -339,7 +339,7 @@ export class KanbanView extends ItemView {
 			const newTitle = titleEl.textContent?.trim() || lane.title;
 			if (newTitle !== lane.title) { lane.title = newTitle; this.scheduleSave(); }
 		});
-		titleEl.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); titleEl.blur(); } });
+		titleEl.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); titleEl.blur(); } });
 
 		const countEl = headerEl.createSpan({
 			cls: 'kanban-matsuo-lane-count',
@@ -530,7 +530,7 @@ export class KanbanView extends ItemView {
 			attr: { type: 'text', placeholder: t('card.add'), 'aria-label': t('card.add-to', { lane: lane.title }) },
 		});
 		input.addEventListener('keydown', (e: KeyboardEvent) => {
-			if (e.key === 'Enter') {
+			if (e.key === 'Enter' && !e.isComposing) {
 				const value = (input as HTMLInputElement).value.trim();
 				if (value) { lane.items.push(createItem(value)); (input as HTMLInputElement).value = ''; this.render(); this.scheduleSave(); }
 			}
@@ -573,7 +573,7 @@ export class KanbanView extends ItemView {
 		};
 		input.addEventListener('blur', finishEdit);
 		input.addEventListener('keydown', (e: KeyboardEvent) => {
-			if (e.key === 'Enter') { e.preventDefault(); (input as HTMLInputElement).blur(); }
+			if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); (input as HTMLInputElement).blur(); }
 			else if (e.key === 'Escape') { (input as HTMLInputElement).value = item.title; (input as HTMLInputElement).blur(); }
 		});
 	}
