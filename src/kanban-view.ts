@@ -440,6 +440,7 @@ export class KanbanView extends ItemView {
 
 		cardEl.addEventListener('dragstart', (e) => {
 			this.draggedItem = item; this.draggedFromLane = lane;
+			this.dragStartX = e.clientX;
 			cardEl.addClass('kanban-matsuo-card-dragging');
 			if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.id); }
 		});
@@ -653,11 +654,21 @@ export class KanbanView extends ItemView {
 	}
 
 
+	// Track drag X position for indent detection
+	private dragStartX = 0;
+
 	private handleDragOver(e: DragEvent, listEl: HTMLElement): void {
 		if (!this.draggedItem) return;
 		this.removePlaceholder();
 		this.dragPlaceholder = listEl.createDiv({ cls: 'kanban-matsuo-drop-placeholder' });
 		this.dragPlaceholder.remove();
+
+		// Show indent level based on X offset
+		const dx = e.clientX - this.dragStartX;
+		const indentLevel = Math.max(0, Math.floor(dx / 40));
+		this.dragPlaceholder.style.setProperty('--card-depth', `${indentLevel}`);
+		if (indentLevel > 0) this.dragPlaceholder.addClass('kanban-matsuo-drop-placeholder-indented');
+
 		const afterEl = this.getDragAfterElement(listEl, e.clientY);
 		if (afterEl) listEl.insertBefore(this.dragPlaceholder, afterEl);
 		else listEl.appendChild(this.dragPlaceholder);
@@ -678,40 +689,79 @@ export class KanbanView extends ItemView {
 
 	private handleDrop(targetLane: KanbanLane, listEl: HTMLElement): void {
 		if (!this.draggedItem || !this.draggedFromLane || !this.board) return;
-		const sourceIndex = this.draggedFromLane.items.indexOf(this.draggedItem);
-		if (sourceIndex >= 0) this.draggedFromLane.items.splice(sourceIndex, 1);
 
-		// Map DOM placeholder position to actual items array index (skipping archived)
-		const activeItems = targetLane.items.filter((i) => !i.archived);
-		let targetIndex = activeItems.length;
+		// Remove from source (could be top-level or nested)
+		this.removeItemRecursive(this.draggedFromLane.items, this.draggedItem);
+
+		// Determine indent level from drag X offset
+		const dx = this.dragPlaceholder
+			? parseInt(this.dragPlaceholder.style.getPropertyValue('--card-depth') || '0', 10)
+			: 0;
+
+		// Find the card above the drop position to determine parent
+		const cardsBefore: HTMLElement[] = [];
 		if (this.dragPlaceholder) {
-			const pi = Array.from(listEl.children).indexOf(this.dragPlaceholder);
-			if (pi >= 0) {
-				// Count how many visible cards are before the placeholder
-				let visibleBefore = 0;
-				for (const child of Array.from(listEl.children)) {
-					if (child === this.dragPlaceholder) break;
-					if (child.classList.contains('kanban-matsuo-card')) visibleBefore++;
+			for (const child of Array.from(listEl.children)) {
+				if (child === this.dragPlaceholder) break;
+				if (child.classList.contains('kanban-matsuo-card')) {
+					cardsBefore.push(child as HTMLElement);
 				}
-				targetIndex = visibleBefore;
 			}
 		}
 
-		// Convert active-index to real index in items array
-		let realIndex = targetLane.items.length;
-		let activeCount = 0;
-		for (let i = 0; i < targetLane.items.length; i++) {
-			if (!targetLane.items[i].archived) {
-				if (activeCount === targetIndex) {
-					realIndex = i;
-					break;
-				}
-				activeCount++;
+		if (dx > 0 && cardsBefore.length > 0) {
+			// Find the card just above and make it the parent
+			const aboveEl = cardsBefore[cardsBefore.length - 1];
+			const aboveId = aboveEl.getAttribute('data-item-id');
+			const parentItem = aboveId ? this.findItemById(targetLane.items, aboveId) : null;
+			if (parentItem) {
+				parentItem.children.push(this.draggedItem);
+			} else {
+				targetLane.items.push(this.draggedItem);
 			}
+		} else {
+			// Top-level: insert at the correct position
+			let insertIdx = this.flatVisibleIndex(targetLane, cardsBefore.length);
+			targetLane.items.splice(insertIdx, 0, this.draggedItem);
 		}
 
-		targetLane.items.splice(realIndex, 0, this.draggedItem);
-		this.removePlaceholder(); this.render(); this.scheduleSave();
+		this.removePlaceholder();
+		this.render();
+		this.scheduleSave();
+	}
+
+	/**
+	 * Find a KanbanItem by id recursively.
+	 */
+	private findItemById(items: KanbanItem[], id: string): KanbanItem | null {
+		for (const item of items) {
+			if (item.id === id) return item;
+			const found = this.findItemById(item.children, id);
+			if (found) return found;
+		}
+		return null;
+	}
+
+	/**
+	 * Convert a flat visible card index to the actual index in lane.items (top-level only).
+	 */
+	private flatVisibleIndex(lane: KanbanLane, visibleBefore: number): number {
+		let count = 0;
+		for (let i = 0; i < lane.items.length; i++) {
+			if (!lane.items[i].archived) {
+				if (count === visibleBefore) return i;
+				count += this.countVisible(lane.items[i]);
+			}
+		}
+		return lane.items.length;
+	}
+
+	private countVisible(item: KanbanItem): number {
+		let count = 1;
+		for (const child of item.children) {
+			if (!child.archived) count += this.countVisible(child);
+		}
+		return count;
 	}
 
 	private removePlaceholder(): void {

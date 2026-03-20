@@ -546,6 +546,10 @@ span.kanban-matsuo-subtask-done {
 	margin: var(--size-2-1) 0;
 }
 
+.kanban-matsuo-drop-placeholder-indented {
+	margin-left: calc(var(--card-depth, 0) * var(--size-4-4));
+}
+
 /* Mobile responsive */
 @media (max-width: 600px) {
 	.kanban-matsuo-board {
