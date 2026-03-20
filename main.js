@@ -914,7 +914,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       }
     }
   }
-  renderCard(container, item, lane, depth = 0) {
+  renderCard(container, item, lane, depth) {
     const cardEl = container.createDiv({
       cls: "kanban-matsuo-card",
       attr: { "data-item-id": item.id, draggable: "true", role: "listitem", tabindex: "0", "aria-label": item.title }
@@ -1234,12 +1234,40 @@ var KanbanView = class extends import_obsidian.ItemView {
     }
   }
   deleteItem(item, lane) {
-    const index = lane.items.indexOf(item);
-    if (index >= 0) {
-      lane.items.splice(index, 1);
+    if (this.removeItemRecursive(lane.items, item)) {
       this.render();
       this.scheduleSave();
     }
+  }
+  /**
+   * Recursively search and remove an item from a list or any children.
+   */
+  removeItemRecursive(items, target) {
+    const index = items.indexOf(target);
+    if (index >= 0) {
+      items.splice(index, 1);
+      return true;
+    }
+    for (const item of items) {
+      if (this.removeItemRecursive(item.children, target)) return true;
+    }
+    return false;
+  }
+  /**
+   * Check if an item is a child (not top-level in the lane).
+   */
+  isChildItem(item, lane) {
+    return !lane.items.includes(item);
+  }
+  /**
+   * Promote a child item to a top-level card in the lane.
+   * Removes it from its parent's children first.
+   */
+  promoteItem(item, lane) {
+    this.removeItemRecursive(lane.items, item);
+    lane.items.push(item);
+    this.render();
+    this.scheduleSave();
   }
   showMenuAtEvent(menu, e) {
     if (e instanceof MouseEvent) menu.showAtMouseEvent(e);
@@ -1272,17 +1300,17 @@ var KanbanView = class extends import_obsidian.ItemView {
       }));
     }
     menu.addSeparator();
+    if (this.isChildItem(item, lane)) {
+      menu.addItem((mi) => mi.setTitle(t("subtask.promote")).setIcon("arrow-up").onClick(() => this.promoteItem(item, lane)));
+    }
     if (this.board) {
       for (const targetLane of this.board.lanes) {
         if (targetLane.id === lane.id) continue;
         menu.addItem((mi) => mi.setTitle(t("card.move-to", { lane: targetLane.title })).setIcon("arrow-right").onClick(() => {
-          const i = lane.items.indexOf(item);
-          if (i >= 0) {
-            lane.items.splice(i, 1);
-            targetLane.items.push(item);
-            this.render();
-            this.scheduleSave();
-          }
+          this.removeItemRecursive(lane.items, item);
+          targetLane.items.push(item);
+          this.render();
+          this.scheduleSave();
         }));
       }
     }
@@ -1550,7 +1578,8 @@ var CardEditorModal = class extends import_obsidian.Modal {
       (0, import_obsidian.setIcon)(deleteBtn, "x");
       deleteBtn.addEventListener("click", () => {
         items.splice(i, 1);
-        row.remove();
+        const section = list.closest(".kanban-matsuo-subtask-editor");
+        if (section) this.rerenderSubTasks(section);
       });
       if (child.checked) row.addClass("kanban-matsuo-subtask-done");
       if (child.children.length > 0) {

@@ -425,7 +425,7 @@ export class KanbanView extends ItemView {
 		}
 	}
 
-	private renderCard(container: HTMLElement, item: KanbanItem, lane: KanbanLane, depth = 0): void {
+	private renderCard(container: HTMLElement, item: KanbanItem, lane: KanbanLane, depth: number): void {
 		const cardEl = container.createDiv({
 			cls: 'kanban-matsuo-card',
 			attr: { 'data-item-id': item.id, draggable: 'true', role: 'listitem', tabindex: '0', 'aria-label': item.title },
@@ -719,8 +719,43 @@ export class KanbanView extends ItemView {
 	}
 
 	private deleteItem(item: KanbanItem, lane: KanbanLane): void {
-		const index = lane.items.indexOf(item);
-		if (index >= 0) { lane.items.splice(index, 1); this.render(); this.scheduleSave(); }
+		if (this.removeItemRecursive(lane.items, item)) {
+			this.render();
+			this.scheduleSave();
+		}
+	}
+
+	/**
+	 * Recursively search and remove an item from a list or any children.
+	 */
+	private removeItemRecursive(items: KanbanItem[], target: KanbanItem): boolean {
+		const index = items.indexOf(target);
+		if (index >= 0) {
+			items.splice(index, 1);
+			return true;
+		}
+		for (const item of items) {
+			if (this.removeItemRecursive(item.children, target)) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Check if an item is a child (not top-level in the lane).
+	 */
+	private isChildItem(item: KanbanItem, lane: KanbanLane): boolean {
+		return !lane.items.includes(item);
+	}
+
+	/**
+	 * Promote a child item to a top-level card in the lane.
+	 * Removes it from its parent's children first.
+	 */
+	private promoteItem(item: KanbanItem, lane: KanbanLane): void {
+		this.removeItemRecursive(lane.items, item);
+		lane.items.push(item);
+		this.render();
+		this.scheduleSave();
 	}
 
 	private showMenuAtEvent(menu: Menu, e: MouseEvent | Event): void {
@@ -752,11 +787,24 @@ export class KanbanView extends ItemView {
 		}
 
 		menu.addSeparator();
+
+		// Promote to top-level (only for child cards)
+		if (this.isChildItem(item, lane)) {
+			menu.addItem((mi) => mi.setTitle(t('subtask.promote')).setIcon('arrow-up')
+				.onClick(() => this.promoteItem(item, lane)));
+		}
+
+		// Move to another lane
 		if (this.board) {
 			for (const targetLane of this.board.lanes) {
 				if (targetLane.id === lane.id) continue;
 				menu.addItem((mi) => mi.setTitle(t('card.move-to', { lane: targetLane.title })).setIcon('arrow-right')
-					.onClick(() => { const i = lane.items.indexOf(item); if (i >= 0) { lane.items.splice(i, 1); targetLane.items.push(item); this.render(); this.scheduleSave(); } }));
+					.onClick(() => {
+						this.removeItemRecursive(lane.items, item);
+						targetLane.items.push(item);
+						this.render();
+						this.scheduleSave();
+					}));
 			}
 		}
 		menu.addSeparator();
@@ -1059,7 +1107,9 @@ class CardEditorModal extends Modal {
 			setIcon(deleteBtn, 'x');
 			deleteBtn.addEventListener('click', () => {
 				items.splice(i, 1);
-				row.remove();
+				// Re-render the subtask list in the modal
+				const section = list.closest('.kanban-matsuo-subtask-editor');
+				if (section) this.rerenderSubTasks(section as HTMLElement);
 			});
 
 			if (child.checked) row.addClass('kanban-matsuo-subtask-done');
