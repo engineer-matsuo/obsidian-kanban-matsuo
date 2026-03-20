@@ -132,4 +132,8 @@ export const ja: Record<TranslationKey, string> = {
 	// Indent buttons
 	'card.indent': '段下げ（サブタスクにする）',
 	'card.outdent': '段上げ（元に戻す）',
+
+	// Rich card toggle
+	'board.rich-mode-on': 'リッチカード表示',
+	'board.rich-mode-off': 'コンパクトカード表示',
 };

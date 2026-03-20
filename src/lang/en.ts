@@ -130,6 +130,10 @@ export const en = {
 	// Indent buttons
 	'card.indent': 'Indent (make subtask)',
 	'card.outdent': 'Outdent (promote)',
+
+	// Rich card toggle
+	'board.rich-mode-on': 'Rich card view',
+	'board.rich-mode-off': 'Compact card view',
 };
 
 export type TranslationKey = keyof typeof en;

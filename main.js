@@ -404,7 +404,10 @@ var en = {
   "subtask.show-done": "Show completed",
   // Indent buttons
   "card.indent": "Indent (make subtask)",
-  "card.outdent": "Outdent (promote)"
+  "card.outdent": "Outdent (promote)",
+  // Rich card toggle
+  "board.rich-mode-on": "Rich card view",
+  "board.rich-mode-off": "Compact card view"
 };
 
 // src/lang/ja.ts
@@ -523,7 +526,10 @@ var ja = {
   "subtask.show-done": "\u5B8C\u4E86\u3092\u8868\u793A",
   // Indent buttons
   "card.indent": "\u6BB5\u4E0B\u3052\uFF08\u30B5\u30D6\u30BF\u30B9\u30AF\u306B\u3059\u308B\uFF09",
-  "card.outdent": "\u6BB5\u4E0A\u3052\uFF08\u5143\u306B\u623B\u3059\uFF09"
+  "card.outdent": "\u6BB5\u4E0A\u3052\uFF08\u5143\u306B\u623B\u3059\uFF09",
+  // Rich card toggle
+  "board.rich-mode-on": "\u30EA\u30C3\u30C1\u30AB\u30FC\u30C9\u8868\u793A",
+  "board.rich-mode-off": "\u30B3\u30F3\u30D1\u30AF\u30C8\u30AB\u30FC\u30C9\u8868\u793A"
 };
 
 // src/lang/index.ts
@@ -575,6 +581,8 @@ var KanbanView = class extends import_obsidian.ItemView {
     // Filter state
     this.filterMode = "none";
     this.filterValue = "";
+    // Rich card display toggle
+    this.richMode = false;
     // External change detection (counter to handle concurrent saves)
     this.ignoreModifyCount = 0;
     // Drag state for indent detection
@@ -687,7 +695,8 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.renderAddLaneButton(this.boardEl);
   }
   renderToolbar(container) {
-    const searchInput = container.createEl("input", {
+    const leftGroup = container.createDiv({ cls: "kanban-matsuo-toolbar-left" });
+    const searchInput = leftGroup.createEl("input", {
       cls: "kanban-matsuo-search",
       attr: {
         type: "text",
@@ -700,20 +709,20 @@ var KanbanView = class extends import_obsidian.ItemView {
       this.filterValue = "";
       this.filterCards(searchInput.value);
     });
-    const tagFilterBtn = container.createEl("button", {
+    const tagFilterBtn = leftGroup.createEl("button", {
       cls: "kanban-matsuo-filter-btn clickable-icon",
       attr: { "aria-label": t("filter.by-tag"), "data-tooltip-position": "top" }
     });
     (0, import_obsidian.setIcon)(tagFilterBtn, "tag");
     tagFilterBtn.addEventListener("click", (e) => this.showTagFilterMenu(e));
-    const dateFilterBtn = container.createEl("button", {
+    const dateFilterBtn = leftGroup.createEl("button", {
       cls: "kanban-matsuo-filter-btn clickable-icon",
       attr: { "aria-label": t("filter.by-date"), "data-tooltip-position": "top" }
     });
     (0, import_obsidian.setIcon)(dateFilterBtn, "calendar");
     dateFilterBtn.addEventListener("click", (e) => this.showDateFilterMenu(e));
     if (this.filterMode !== "none") {
-      const clearBtn = container.createEl("button", {
+      const clearBtn = leftGroup.createEl("button", {
         cls: "kanban-matsuo-filter-clear clickable-icon",
         attr: { "aria-label": t("filter.clear"), "data-tooltip-position": "top" }
       });
@@ -724,6 +733,19 @@ var KanbanView = class extends import_obsidian.ItemView {
         this.render();
       });
     }
+    const rightGroup = container.createDiv({ cls: "kanban-matsuo-toolbar-right" });
+    const richToggle = rightGroup.createEl("button", {
+      cls: `kanban-matsuo-rich-toggle clickable-icon${this.richMode ? " kanban-matsuo-rich-toggle-active" : ""}`,
+      attr: {
+        "aria-label": this.richMode ? t("board.rich-mode-off") : t("board.rich-mode-on"),
+        "data-tooltip-position": "top"
+      }
+    });
+    (0, import_obsidian.setIcon)(richToggle, this.richMode ? "layout-list" : "layout-dashboard");
+    richToggle.addEventListener("click", () => {
+      this.richMode = !this.richMode;
+      this.render();
+    });
   }
   showTagFilterMenu(e) {
     if (!this.board) return;
@@ -1010,6 +1032,10 @@ var KanbanView = class extends import_obsidian.ItemView {
       if (item.dueDate < today) dateEl.addClass("kanban-matsuo-date-overdue");
       else if (item.dueDate === today) dateEl.addClass("kanban-matsuo-date-today");
       dateEl.setText(`\u{1F4C5} ${item.dueDate}`);
+    }
+    if (this.richMode && item.body) {
+      const descEl = bodyEl.createDiv({ cls: "kanban-matsuo-card-description" });
+      descEl.setText(item.body);
     }
     this.renderIndentButtons(bodyEl, item, lane, depth);
     if (item.children.length > 0) {
@@ -1607,7 +1633,6 @@ var ConfirmDeleteModal = class extends import_obsidian.Modal {
 var CardEditorModal = class extends import_obsidian.Modal {
   constructor(app, item, onSave) {
     super(app);
-    this.hideDone = false;
     this.item = item;
     this.onSave = onSave;
   }
@@ -1656,7 +1681,6 @@ var CardEditorModal = class extends import_obsidian.Modal {
       }
     });
     bodyInput.value = this.item.body || "";
-    this.renderSubTaskEditor(contentEl);
     new import_obsidian.Setting(contentEl).addButton((btn) => {
       btn.setButtonText(t("modal.save")).setCta().onClick(() => {
         this.saveAndClose(titleInput, tagsInput, dateInput, bodyInput);
@@ -1684,85 +1708,6 @@ var CardEditorModal = class extends import_obsidian.Modal {
     this.item.body = bodyEl.value.trim();
     this.onSave(this.item);
     this.close();
-  }
-  renderSubTaskEditor(container) {
-    const section = container.createDiv({ cls: "kanban-matsuo-subtask-editor" });
-    const header = section.createDiv({ cls: "kanban-matsuo-subtask-header" });
-    header.createEl("h4", { text: t("subtask.add"), cls: "kanban-matsuo-subtask-heading" });
-    if (this.item.children.length > 0) {
-      const toggleBtn = header.createEl("button", {
-        cls: "kanban-matsuo-subtask-toggle clickable-icon",
-        text: this.hideDone ? t("subtask.show-done") : t("subtask.collapse-done")
-      });
-      toggleBtn.addEventListener("click", () => {
-        this.hideDone = !this.hideDone;
-        this.rerenderSubTasks(section);
-      });
-    }
-    this.renderSubTaskList(section, this.item.children, 0);
-    const addRow = section.createDiv({ cls: "kanban-matsuo-subtask-add" });
-    const addInput = addRow.createEl("input", {
-      cls: "kanban-matsuo-editor-input",
-      attr: { type: "text", placeholder: t("subtask.add-placeholder"), "aria-label": t("subtask.add") }
-    });
-    addInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.isComposing) {
-        const val = addInput.value.trim();
-        if (val) {
-          const child = createItem(val);
-          this.item.children.push(child);
-          addInput.value = "";
-          this.rerenderSubTasks(section);
-        }
-      }
-    });
-  }
-  rerenderSubTasks(section) {
-    section.empty();
-    this.renderSubTaskEditor(section.parentElement);
-    section.remove();
-  }
-  renderSubTaskList(container, items, depth) {
-    const list = container.createDiv({ cls: "kanban-matsuo-subtask-list" });
-    if (depth > 0) list.style.setProperty("--subtask-depth", `${depth}`);
-    for (let i = 0; i < items.length; i++) {
-      const child = items[i];
-      if (this.hideDone && child.checked) continue;
-      const row = list.createDiv({ cls: "kanban-matsuo-subtask-row" });
-      const checkbox = row.createEl("input", {
-        attr: { type: "checkbox", "aria-label": child.title },
-        cls: "kanban-matsuo-subtask-checkbox"
-      });
-      checkbox.checked = child.checked;
-      checkbox.addEventListener("change", () => {
-        child.checked = checkbox.checked;
-        row.toggleClass("kanban-matsuo-subtask-done", child.checked);
-      });
-      const titleEl = row.createSpan({
-        cls: `kanban-matsuo-subtask-title${child.checked ? " kanban-matsuo-subtask-done" : ""}`,
-        text: child.title
-      });
-      titleEl.contentEditable = "true";
-      titleEl.addEventListener("blur", () => {
-        var _a;
-        const val = (_a = titleEl.textContent) == null ? void 0 : _a.trim();
-        if (val) child.title = val;
-      });
-      const deleteBtn = row.createEl("button", {
-        cls: "kanban-matsuo-subtask-delete clickable-icon",
-        attr: { "aria-label": t("subtask.delete") }
-      });
-      (0, import_obsidian.setIcon)(deleteBtn, "x");
-      deleteBtn.addEventListener("click", () => {
-        items.splice(i, 1);
-        const section = list.closest(".kanban-matsuo-subtask-editor");
-        if (section) this.rerenderSubTasks(section);
-      });
-      if (child.checked) row.addClass("kanban-matsuo-subtask-done");
-      if (child.children.length > 0) {
-        this.renderSubTaskList(row, child.children, depth + 1);
-      }
-    }
   }
   onClose() {
     this.contentEl.empty();

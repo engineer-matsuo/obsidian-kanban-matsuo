@@ -16,9 +16,31 @@
 .kanban-matsuo-toolbar {
 	display: flex;
 	align-items: center;
+	justify-content: space-between;
 	padding: var(--size-4-2) var(--size-4-3);
 	border-bottom: 1px solid var(--background-modifier-border);
 	flex-shrink: 0;
+}
+
+.kanban-matsuo-toolbar-left {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+}
+
+.kanban-matsuo-toolbar-right {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+}
+
+.kanban-matsuo-rich-toggle {
+	min-width: 44px;
+	min-height: 44px;
+}
+
+.kanban-matsuo-rich-toggle-active {
+	color: var(--interactive-accent);
 }
 
 .kanban-matsuo-search {
@@ -195,6 +217,15 @@
 .kanban-matsuo-card-title-link:hover {
 	text-decoration: underline;
 	color: var(--text-accent-hover);
+}
+
+/* Card description (rich mode) */
+.kanban-matsuo-card-description {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	margin-top: var(--size-2-2);
+	white-space: pre-wrap;
+	word-break: break-word;
 }
 
 /* Tags */
