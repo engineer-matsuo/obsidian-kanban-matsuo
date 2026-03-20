@@ -1241,57 +1241,108 @@ var KanbanView = class extends import_obsidian.ItemView {
     return { done, total };
   }
   /**
-   * Render WBS (Work Breakdown Structure) table below the board.
+   * Render WBS/Gantt chart below the board.
+   * Left: task tree with status (lane). Right: date timeline bars.
    */
   renderWbs(container) {
     if (!this.board) return;
-    const wbsContainer = container.createDiv({ cls: "kanban-matsuo-wbs" });
-    wbsContainer.createEl("h3", { text: t("wbs.title"), cls: "kanban-matsuo-wbs-heading" });
-    const table = wbsContainer.createEl("table", { cls: "kanban-matsuo-wbs-table" });
-    const thead = table.createEl("thead");
-    const headerRow = thead.createEl("tr");
-    const cols = ["wbs.col-id", "wbs.col-task", "wbs.col-lane", "wbs.col-tags", "wbs.col-start", "wbs.col-end", "wbs.col-status", "wbs.col-progress"];
-    for (const col of cols) {
-      headerRow.createEl("th", { text: t(col) });
-    }
-    const tbody = table.createEl("tbody");
-    let rowNum = 0;
+    const flatItems = [];
     for (const lane of this.board.lanes) {
       for (const item of lane.items) {
-        if (item.archived) continue;
-        this.renderWbsRow(tbody, item, lane.title, 0, ++rowNum);
+        if (!item.archived) this.flattenForWbs(item, lane.title, 0, flatItems);
+      }
+    }
+    const today = this.getToday();
+    let minDate = today;
+    let maxDate = today;
+    for (const { item } of flatItems) {
+      if (item.startDate && item.startDate < minDate) minDate = item.startDate;
+      if (item.endDate && item.endDate > maxDate) maxDate = item.endDate;
+    }
+    const rangeStart = this.addDays(minDate, -2);
+    const rangeEnd = this.addDays(maxDate, 5);
+    const dates = this.generateDateRange(rangeStart, rangeEnd);
+    const wbsContainer = container.createDiv({ cls: "kanban-matsuo-wbs" });
+    const wrapper = wbsContainer.createDiv({ cls: "kanban-matsuo-gantt-wrapper" });
+    const leftPanel = wrapper.createDiv({ cls: "kanban-matsuo-gantt-left" });
+    const leftTable = leftPanel.createEl("table", { cls: "kanban-matsuo-gantt-table-left" });
+    const leftHead = leftTable.createEl("thead");
+    const leftHR = leftHead.createEl("tr");
+    leftHR.createEl("th", { text: t("wbs.col-task") });
+    leftHR.createEl("th", { text: t("wbs.col-status") });
+    leftHR.createEl("th", { text: t("wbs.col-progress") });
+    const leftBody = leftTable.createEl("tbody");
+    for (const { item, lane, depth } of flatItems) {
+      const row = leftBody.createEl("tr", { cls: item.checked ? "kanban-matsuo-wbs-done" : "" });
+      const taskCell = row.createEl("td", { cls: "kanban-matsuo-gantt-task" });
+      if (depth > 0) taskCell.style.setProperty("--gantt-depth", `${depth}`);
+      const prefix = depth > 0 ? "\u2514 " : "";
+      const cleanTitle = item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim();
+      taskCell.setText(`${prefix}${cleanTitle}`);
+      row.createEl("td", { text: lane, cls: "kanban-matsuo-gantt-status" });
+      const progCell = row.createEl("td", { cls: "kanban-matsuo-gantt-progress" });
+      let pct = item.checked ? 100 : 0;
+      if (item.children.length > 0) {
+        const { done, total } = this.countChildren(item.children);
+        pct = total > 0 ? Math.round(done / total * 100) : 0;
+      }
+      progCell.setText(`${pct}%`);
+    }
+    const rightPanel = wrapper.createDiv({ cls: "kanban-matsuo-gantt-right" });
+    const rightTable = rightPanel.createEl("table", { cls: "kanban-matsuo-gantt-table-right" });
+    const rightHead = rightTable.createEl("thead");
+    const dateRow = rightHead.createEl("tr");
+    for (const d of dates) {
+      const th = dateRow.createEl("th", { cls: "kanban-matsuo-gantt-date-cell" });
+      const day = d.slice(8, 10);
+      th.setText(day);
+      if (d === today) th.addClass("kanban-matsuo-gantt-today");
+      const dow = (/* @__PURE__ */ new Date(d + "T00:00:00")).getDay();
+      if (dow === 0 || dow === 6) th.addClass("kanban-matsuo-gantt-weekend");
+    }
+    const rightBody = rightTable.createEl("tbody");
+    for (const { item } of flatItems) {
+      const row = rightBody.createEl("tr");
+      for (const d of dates) {
+        const cell = row.createEl("td", { cls: "kanban-matsuo-gantt-cell" });
+        if (d === today) cell.addClass("kanban-matsuo-gantt-today");
+        const dow = (/* @__PURE__ */ new Date(d + "T00:00:00")).getDay();
+        if (dow === 0 || dow === 6) cell.addClass("kanban-matsuo-gantt-weekend");
+        const start = item.startDate || item.endDate;
+        const end = item.endDate || item.startDate;
+        if (start && end && d >= start && d <= end) {
+          const bar = cell.createDiv({ cls: "kanban-matsuo-gantt-bar" });
+          if (item.checked) bar.addClass("kanban-matsuo-gantt-bar-done");
+          if (d === start) {
+            const label = item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim();
+            bar.setAttribute("data-label", label);
+          }
+        }
       }
     }
   }
-  renderWbsRow(tbody, item, laneTitle, depth, num) {
-    const row = tbody.createEl("tr", { cls: item.checked ? "kanban-matsuo-wbs-done" : "" });
-    row.createEl("td", { text: String(num) });
-    const taskCell = row.createEl("td");
-    const indent = "  ".repeat(depth);
-    const prefix = depth > 0 ? "\u2514 " : "";
-    taskCell.setText(`${indent}${prefix}${item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim()}`);
-    row.createEl("td", { text: laneTitle });
-    row.createEl("td", { text: item.tags.join(", ") });
-    row.createEl("td", { text: item.startDate || "" });
-    const endCell = row.createEl("td", { text: item.endDate || "" });
-    if (item.endDate) {
-      const today = this.getToday();
-      if (item.endDate < today && !item.checked) endCell.addClass("kanban-matsuo-date-overdue");
-    }
-    row.createEl("td", { text: item.checked ? t("wbs.status-done") : t("wbs.status-open") });
-    if (item.children.length > 0) {
-      const { done, total } = this.countChildren(item.children);
-      const pct = total > 0 ? Math.round(done / total * 100) : 0;
-      row.createEl("td", { text: `${pct}%` });
-    } else {
-      row.createEl("td", { text: item.checked ? "100%" : "0%" });
-    }
+  flattenForWbs(item, lane, depth, out) {
+    out.push({ item, lane, depth });
     for (const child of item.children) {
-      if (!child.archived) {
-        num = this.renderWbsRow(tbody, child, laneTitle, depth + 1, ++num);
-      }
+      if (!child.archived) this.flattenForWbs(child, lane, depth + 1, out);
     }
-    return num;
+  }
+  addDays(dateStr, days) {
+    const d = /* @__PURE__ */ new Date(dateStr + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${dd}`;
+  }
+  generateDateRange(start, end) {
+    const dates = [];
+    let current = start;
+    while (current <= end) {
+      dates.push(current);
+      current = this.addDays(current, 1);
+    }
+    return dates;
   }
   /** Setup touch drag for lane reorder (mobile) */
   setupTouchDrag(handle, el, lane) {
