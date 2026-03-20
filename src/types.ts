@@ -1,3 +1,10 @@
+export interface SubTask {
+	id: string;
+	title: string;
+	checked: boolean;
+	subtasks: SubTask[];
+}
+
 export interface KanbanItem {
 	id: string;
 	title: string;
@@ -6,6 +13,7 @@ export interface KanbanItem {
 	dueDate: string | null;
 	checked: boolean;
 	archived: boolean;
+	subtasks: SubTask[];
 }
 
 export interface KanbanLane {

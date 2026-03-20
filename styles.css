@@ -411,6 +411,121 @@
 	outline-offset: 1px;
 }
 
+/* Subtask progress bar (on card) */
+.kanban-matsuo-subtask-progress {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin-top: var(--size-2-3);
+}
+
+.kanban-matsuo-progress-bar {
+	flex: 1;
+	height: 6px;
+	background: var(--background-modifier-border);
+	border-radius: 3px;
+	overflow: hidden;
+}
+
+.kanban-matsuo-progress-fill {
+	height: 100%;
+	width: var(--progress-pct, 0%);
+	background: var(--interactive-accent);
+	border-radius: 3px;
+	transition: width 200ms ease;
+}
+
+.kanban-matsuo-progress-text {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	flex-shrink: 0;
+}
+
+/* Subtask editor (in card modal) */
+.kanban-matsuo-subtask-editor {
+	margin-top: var(--size-4-2);
+}
+
+.kanban-matsuo-subtask-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.kanban-matsuo-subtask-heading {
+	margin: 0;
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.kanban-matsuo-subtask-toggle {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	cursor: pointer;
+	background: none;
+	border: none;
+	padding: var(--size-2-1) var(--size-2-2);
+}
+
+.kanban-matsuo-subtask-list {
+	padding-left: calc(var(--subtask-depth, 0) * var(--size-4-4));
+}
+
+.kanban-matsuo-subtask-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: var(--size-2-1) 0;
+}
+
+.kanban-matsuo-subtask-checkbox {
+	flex-shrink: 0;
+	min-width: 18px;
+	min-height: 18px;
+}
+
+.kanban-matsuo-subtask-title {
+	flex: 1;
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	border-radius: var(--radius-s);
+	padding: var(--size-2-1);
+	min-width: 0;
+}
+
+.kanban-matsuo-subtask-title:focus:not(:focus-visible) {
+	outline: none;
+}
+
+.kanban-matsuo-subtask-title:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.kanban-matsuo-subtask-done .kanban-matsuo-subtask-title,
+span.kanban-matsuo-subtask-done {
+	text-decoration: line-through;
+	color: var(--text-muted);
+}
+
+.kanban-matsuo-subtask-delete {
+	flex-shrink: 0;
+	min-width: 24px;
+	min-height: 24px;
+	color: var(--text-faint);
+	opacity: 0;
+	transition: opacity 150ms ease;
+}
+
+.kanban-matsuo-subtask-row:hover .kanban-matsuo-subtask-delete {
+	opacity: 1;
+}
+
+.kanban-matsuo-subtask-add {
+	margin-top: var(--size-4-1);
+}
+
 /* Hidden card (search filter) */
 .kanban-matsuo-card-hidden {
 	display: none;

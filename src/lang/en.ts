@@ -117,6 +117,15 @@ export const en = {
 	'card-editor.clear-date': 'Clear',
 	'card-editor.body': 'Description',
 	'card-editor.body-placeholder': 'Card description (optional)',
+
+	// Subtasks
+	'subtask.add': 'Add subtask',
+	'subtask.add-placeholder': 'New subtask...',
+	'subtask.progress': '{{done}}/{{total}}',
+	'subtask.promote': 'Promote to card',
+	'subtask.delete': 'Delete subtask',
+	'subtask.collapse-done': 'Hide completed',
+	'subtask.show-done': 'Show completed',
 };
 
 export type TranslationKey = keyof typeof en;

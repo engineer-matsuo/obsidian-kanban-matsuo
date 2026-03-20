@@ -119,4 +119,13 @@ export const ja: Record<TranslationKey, string> = {
 	'card-editor.clear-date': 'クリア',
 	'card-editor.body': '説明',
 	'card-editor.body-placeholder': 'カードの説明（任意）',
+
+	// Subtasks
+	'subtask.add': 'サブタスクを追加',
+	'subtask.add-placeholder': '新しいサブタスク...',
+	'subtask.progress': '{{done}}/{{total}}',
+	'subtask.promote': 'カードに昇格',
+	'subtask.delete': 'サブタスクを削除',
+	'subtask.collapse-done': '完了を非表示',
+	'subtask.show-done': '完了を表示',
 };

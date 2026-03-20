@@ -14,12 +14,15 @@ import {
 	KanbanBoard,
 	KanbanLane,
 	KanbanItem,
+	SubTask,
 } from './types';
 import {
 	parseMarkdown,
 	boardToMarkdown,
 	createItem,
 	createLane,
+	createSubTask,
+	generateId,
 } from './parser';
 import { t } from './lang';
 
@@ -502,6 +505,32 @@ export class KanbanView extends ItemView {
 			else if (item.dueDate === today) dateEl.addClass('kanban-matsuo-date-today');
 			dateEl.setText(`📅 ${item.dueDate}`);
 		}
+
+		// Subtask progress bar
+		if (item.subtasks.length > 0) {
+			const { done, total } = this.countSubTasks(item.subtasks);
+			const progressEl = bodyEl.createDiv({ cls: 'kanban-matsuo-subtask-progress' });
+			const barOuter = progressEl.createDiv({ cls: 'kanban-matsuo-progress-bar' });
+			const barInner = barOuter.createDiv({ cls: 'kanban-matsuo-progress-fill' });
+			const pct = total > 0 ? (done / total) * 100 : 0;
+			barInner.style.setProperty('--progress-pct', `${pct}%`);
+			progressEl.createSpan({
+				cls: 'kanban-matsuo-progress-text',
+				text: t('subtask.progress', { done, total }),
+			});
+		}
+	}
+
+	private countSubTasks(subtasks: SubTask[]): { done: number; total: number } {
+		let done = 0, total = 0;
+		for (const s of subtasks) {
+			total++;
+			if (s.checked) done++;
+			const child = this.countSubTasks(s.subtasks);
+			done += child.done;
+			total += child.total;
+		}
+		return { done, total };
 	}
 
 	/** Setup touch drag for lane reorder (mobile) */
@@ -882,6 +911,9 @@ class CardEditorModal extends Modal {
 		});
 		bodyInput.value = this.item.body || '';
 
+		// Subtasks
+		this.renderSubTaskEditor(contentEl);
+
 		// Buttons
 		new Setting(contentEl)
 			.addButton((btn) => {
@@ -928,6 +960,100 @@ class CardEditorModal extends Modal {
 
 		this.onSave(this.item);
 		this.close();
+	}
+
+	private hideDone = false;
+
+	private renderSubTaskEditor(container: HTMLElement): void {
+		const section = container.createDiv({ cls: 'kanban-matsuo-subtask-editor' });
+		const header = section.createDiv({ cls: 'kanban-matsuo-subtask-header' });
+		header.createEl('h4', { text: t('subtask.add'), cls: 'kanban-matsuo-subtask-heading' });
+
+		if (this.item.subtasks.length > 0) {
+			const toggleBtn = header.createEl('button', {
+				cls: 'kanban-matsuo-subtask-toggle clickable-icon',
+				text: this.hideDone ? t('subtask.show-done') : t('subtask.collapse-done'),
+			});
+			toggleBtn.addEventListener('click', () => {
+				this.hideDone = !this.hideDone;
+				this.rerenderSubTasks(section);
+			});
+		}
+
+		this.renderSubTaskList(section, this.item.subtasks, 0);
+
+		// Add subtask input
+		const addRow = section.createDiv({ cls: 'kanban-matsuo-subtask-add' });
+		const addInput = addRow.createEl('input', {
+			cls: 'kanban-matsuo-editor-input',
+			attr: { type: 'text', placeholder: t('subtask.add-placeholder'), 'aria-label': t('subtask.add') },
+		});
+		addInput.addEventListener('keydown', (e: KeyboardEvent) => {
+			if (e.key === 'Enter' && !e.isComposing) {
+				const val = (addInput as HTMLInputElement).value.trim();
+				if (val) {
+					const st = createSubTask(val);
+					this.item.subtasks.push(st);
+					(addInput as HTMLInputElement).value = '';
+					this.rerenderSubTasks(section);
+				}
+			}
+		});
+	}
+
+	private rerenderSubTasks(section: HTMLElement): void {
+		section.empty();
+		this.renderSubTaskEditor(section.parentElement!);
+		section.remove();
+	}
+
+	private renderSubTaskList(container: HTMLElement, subtasks: SubTask[], depth: number): void {
+		const list = container.createDiv({ cls: 'kanban-matsuo-subtask-list' });
+		if (depth > 0) list.style.setProperty('--subtask-depth', `${depth}`);
+
+		for (let i = 0; i < subtasks.length; i++) {
+			const st = subtasks[i];
+			if (this.hideDone && st.checked) continue;
+
+			const row = list.createDiv({ cls: 'kanban-matsuo-subtask-row' });
+
+			const checkbox = row.createEl('input', {
+				attr: { type: 'checkbox', 'aria-label': st.title },
+				cls: 'kanban-matsuo-subtask-checkbox',
+			});
+			(checkbox as HTMLInputElement).checked = st.checked;
+			checkbox.addEventListener('change', () => {
+				st.checked = (checkbox as HTMLInputElement).checked;
+				row.toggleClass('kanban-matsuo-subtask-done', st.checked);
+			});
+
+			const titleEl = row.createSpan({
+				cls: `kanban-matsuo-subtask-title${st.checked ? ' kanban-matsuo-subtask-done' : ''}`,
+				text: st.title,
+			});
+			titleEl.contentEditable = 'true';
+			titleEl.addEventListener('blur', () => {
+				const val = titleEl.textContent?.trim();
+				if (val) st.title = val;
+			});
+
+			const deleteBtn = row.createEl('button', {
+				cls: 'kanban-matsuo-subtask-delete clickable-icon',
+				attr: { 'aria-label': t('subtask.delete') },
+			});
+			setIcon(deleteBtn, 'x');
+			deleteBtn.addEventListener('click', () => {
+				subtasks.splice(i, 1);
+				row.remove();
+			});
+
+			if (st.checked) row.addClass('kanban-matsuo-subtask-done');
+
+			// Nested subtasks
+			if (st.subtasks.length > 0) {
+				this.renderSubTaskList(row, st.subtasks, depth + 1);
+			}
+		}
 	}
 
 	onClose(): void {

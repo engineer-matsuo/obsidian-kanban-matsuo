@@ -1,4 +1,4 @@
-import { KanbanBoard, KanbanItem, KanbanLane, DEFAULT_BOARD_SETTINGS } from './types';
+import { KanbanBoard, KanbanItem, KanbanLane, SubTask, DEFAULT_BOARD_SETTINGS } from './types';
 
 /**
  * Generate a unique ID for lanes and items.
@@ -19,6 +19,19 @@ export function createItem(title: string): KanbanItem {
 		dueDate: extractDate(title),
 		checked: false,
 		archived: false,
+		subtasks: [],
+	};
+}
+
+/**
+ * Create a new SubTask.
+ */
+export function createSubTask(title: string): SubTask {
+	return {
+		id: generateId(),
+		title: title.trim(),
+		checked: false,
+		subtasks: [],
 	};
 }
 
@@ -149,10 +162,20 @@ export function parseMarkdown(content: string): KanbanBoard {
 				continue;
 			}
 
-			// Body lines for archived items (indented)
+			// Indented lines for archived items: subtasks or body
 			if (currentItem && line.match(/^\s{4}/) && line.trim().length > 0) {
-				if (currentItem.body) currentItem.body += '\n';
-				currentItem.body += line.trim();
+				const subtaskMatch = line.match(/^(\s+)[-*]\s+\[([x ])\]\s*(.+)$/i);
+				if (subtaskMatch) {
+					const indent = subtaskMatch[1].length;
+					const checked = subtaskMatch[2].toLowerCase() === 'x';
+					const st = createSubTask(subtaskMatch[3]);
+					st.checked = checked;
+					const level = Math.floor(indent / 4) - 1;
+					insertSubTask(currentItem.subtasks, st, level);
+				} else {
+					if (currentItem.body) currentItem.body += '\n';
+					currentItem.body += line.trim();
+				}
 				continue;
 			}
 
@@ -178,10 +201,22 @@ export function parseMarkdown(content: string): KanbanBoard {
 			continue;
 		}
 
-		// Body lines (indented with 4 spaces or tab, belongs to current item)
-		if (currentItem && line.match(/^\s{4}|\t/) && line.trim().length > 0) {
-			if (currentItem.body) currentItem.body += '\n';
-			currentItem.body += line.trim();
+		// Indented lines: subtask checkboxes or body text
+		if (currentItem && line.match(/^\s{4}/) && line.trim().length > 0) {
+			const subtaskMatch = line.match(/^(\s+)[-*]\s+\[([x ])\]\s*(.+)$/i);
+			if (subtaskMatch) {
+				const indent = subtaskMatch[1].length;
+				const checked = subtaskMatch[2].toLowerCase() === 'x';
+				const st = createSubTask(subtaskMatch[3]);
+				st.checked = checked;
+				// Determine nesting level (4 spaces = level 0 subtask, 8 = level 1, etc.)
+				const level = Math.floor(indent / 4) - 1;
+				insertSubTask(currentItem.subtasks, st, level);
+			} else {
+				// Plain body line
+				if (currentItem.body) currentItem.body += '\n';
+				currentItem.body += line.trim();
+			}
 			continue;
 		}
 
@@ -192,6 +227,33 @@ export function parseMarkdown(content: string): KanbanBoard {
 	}
 
 	return board;
+}
+
+/**
+ * Insert a subtask at the correct nesting level.
+ * level 0 = direct child of item, level 1 = child of last level-0 subtask, etc.
+ */
+function insertSubTask(subtasks: SubTask[], st: SubTask, level: number): void {
+	if (level <= 0 || subtasks.length === 0) {
+		subtasks.push(st);
+		return;
+	}
+	const parent = subtasks[subtasks.length - 1];
+	insertSubTask(parent.subtasks, st, level - 1);
+}
+
+/**
+ * Serialize subtasks as indented checkbox lines.
+ */
+function serializeSubTasks(subtasks: SubTask[], lines: string[], depth: number): void {
+	const indent = '    '.repeat(depth + 1);
+	for (const st of subtasks) {
+		const check = st.checked ? '[x]' : '[ ]';
+		lines.push(`${indent}- ${check} ${st.title}`);
+		if (st.subtasks.length > 0) {
+			serializeSubTasks(st.subtasks, lines, depth + 1);
+		}
+	}
 }
 
 /**
@@ -276,6 +338,11 @@ export function boardToMarkdown(board: KanbanBoard): string {
 					lines.push(`    ${bodyLine}`);
 				}
 			}
+
+			// Subtasks
+			if (item.subtasks.length > 0) {
+				serializeSubTasks(item.subtasks, lines, 0);
+			}
 		}
 
 		lines.push('');
@@ -308,6 +375,9 @@ export function boardToMarkdown(board: KanbanBoard): string {
 					for (const bodyLine of item.body.split('\n')) {
 						lines.push(`    ${bodyLine}`);
 					}
+				}
+				if (item.subtasks.length > 0) {
+					serializeSubTasks(item.subtasks, lines, 0);
 				}
 			}
 			lines.push('');

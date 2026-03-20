@@ -64,7 +64,16 @@ function createItem(title) {
     tags: extractTags(title),
     dueDate: extractDate(title),
     checked: false,
-    archived: false
+    archived: false,
+    subtasks: []
+  };
+}
+function createSubTask(title) {
+  return {
+    id: generateId(),
+    title: title.trim(),
+    checked: false,
+    subtasks: []
   };
 }
 function createLane(title) {
@@ -144,8 +153,18 @@ function parseMarkdown(content) {
         continue;
       }
       if (currentItem && line.match(/^\s{4}/) && line.trim().length > 0) {
-        if (currentItem.body) currentItem.body += "\n";
-        currentItem.body += line.trim();
+        const subtaskMatch = line.match(/^(\s+)[-*]\s+\[([x ])\]\s*(.+)$/i);
+        if (subtaskMatch) {
+          const indent = subtaskMatch[1].length;
+          const checked = subtaskMatch[2].toLowerCase() === "x";
+          const st = createSubTask(subtaskMatch[3]);
+          st.checked = checked;
+          const level = Math.floor(indent / 4) - 1;
+          insertSubTask(currentItem.subtasks, st, level);
+        } else {
+          if (currentItem.body) currentItem.body += "\n";
+          currentItem.body += line.trim();
+        }
         continue;
       }
       continue;
@@ -165,9 +184,19 @@ function parseMarkdown(content) {
       currentItem = item;
       continue;
     }
-    if (currentItem && line.match(/^\s{4}|\t/) && line.trim().length > 0) {
-      if (currentItem.body) currentItem.body += "\n";
-      currentItem.body += line.trim();
+    if (currentItem && line.match(/^\s{4}/) && line.trim().length > 0) {
+      const subtaskMatch = line.match(/^(\s+)[-*]\s+\[([x ])\]\s*(.+)$/i);
+      if (subtaskMatch) {
+        const indent = subtaskMatch[1].length;
+        const checked = subtaskMatch[2].toLowerCase() === "x";
+        const st = createSubTask(subtaskMatch[3]);
+        st.checked = checked;
+        const level = Math.floor(indent / 4) - 1;
+        insertSubTask(currentItem.subtasks, st, level);
+      } else {
+        if (currentItem.body) currentItem.body += "\n";
+        currentItem.body += line.trim();
+      }
       continue;
     }
     if (line.trim() === "") {
@@ -175,6 +204,24 @@ function parseMarkdown(content) {
     }
   }
   return board;
+}
+function insertSubTask(subtasks, st, level) {
+  if (level <= 0 || subtasks.length === 0) {
+    subtasks.push(st);
+    return;
+  }
+  const parent = subtasks[subtasks.length - 1];
+  insertSubTask(parent.subtasks, st, level - 1);
+}
+function serializeSubTasks(subtasks, lines, depth) {
+  const indent = "    ".repeat(depth + 1);
+  for (const st of subtasks) {
+    const check = st.checked ? "[x]" : "[ ]";
+    lines.push(`${indent}- ${check} ${st.title}`);
+    if (st.subtasks.length > 0) {
+      serializeSubTasks(st.subtasks, lines, depth + 1);
+    }
+  }
 }
 function parseFrontmatterLine(line, settings) {
   const match = line.match(/^(\w[\w-]*):\s*(.+)$/);
@@ -233,6 +280,9 @@ function boardToMarkdown(board) {
           lines.push(`    ${bodyLine}`);
         }
       }
+      if (item.subtasks.length > 0) {
+        serializeSubTasks(item.subtasks, lines, 0);
+      }
     }
     lines.push("");
   }
@@ -260,6 +310,9 @@ function boardToMarkdown(board) {
           for (const bodyLine of item.body.split("\n")) {
             lines.push(`    ${bodyLine}`);
           }
+        }
+        if (item.subtasks.length > 0) {
+          serializeSubTasks(item.subtasks, lines, 0);
         }
       }
       lines.push("");
@@ -373,7 +426,15 @@ var en = {
   "card-editor.due-date-desc": "YYYY-MM-DD format.",
   "card-editor.clear-date": "Clear",
   "card-editor.body": "Description",
-  "card-editor.body-placeholder": "Card description (optional)"
+  "card-editor.body-placeholder": "Card description (optional)",
+  // Subtasks
+  "subtask.add": "Add subtask",
+  "subtask.add-placeholder": "New subtask...",
+  "subtask.progress": "{{done}}/{{total}}",
+  "subtask.promote": "Promote to card",
+  "subtask.delete": "Delete subtask",
+  "subtask.collapse-done": "Hide completed",
+  "subtask.show-done": "Show completed"
 };
 
 // src/lang/ja.ts
@@ -481,7 +542,15 @@ var ja = {
   "card-editor.due-date-desc": "YYYY-MM-DD \u5F62\u5F0F\u3002",
   "card-editor.clear-date": "\u30AF\u30EA\u30A2",
   "card-editor.body": "\u8AAC\u660E",
-  "card-editor.body-placeholder": "\u30AB\u30FC\u30C9\u306E\u8AAC\u660E\uFF08\u4EFB\u610F\uFF09"
+  "card-editor.body-placeholder": "\u30AB\u30FC\u30C9\u306E\u8AAC\u660E\uFF08\u4EFB\u610F\uFF09",
+  // Subtasks
+  "subtask.add": "\u30B5\u30D6\u30BF\u30B9\u30AF\u3092\u8FFD\u52A0",
+  "subtask.add-placeholder": "\u65B0\u3057\u3044\u30B5\u30D6\u30BF\u30B9\u30AF...",
+  "subtask.progress": "{{done}}/{{total}}",
+  "subtask.promote": "\u30AB\u30FC\u30C9\u306B\u6607\u683C",
+  "subtask.delete": "\u30B5\u30D6\u30BF\u30B9\u30AF\u3092\u524A\u9664",
+  "subtask.collapse-done": "\u5B8C\u4E86\u3092\u975E\u8868\u793A",
+  "subtask.show-done": "\u5B8C\u4E86\u3092\u8868\u793A"
 };
 
 // src/lang/index.ts
@@ -960,6 +1029,29 @@ var KanbanView = class extends import_obsidian.ItemView {
       else if (item.dueDate === today) dateEl.addClass("kanban-matsuo-date-today");
       dateEl.setText(`\u{1F4C5} ${item.dueDate}`);
     }
+    if (item.subtasks.length > 0) {
+      const { done, total } = this.countSubTasks(item.subtasks);
+      const progressEl = bodyEl.createDiv({ cls: "kanban-matsuo-subtask-progress" });
+      const barOuter = progressEl.createDiv({ cls: "kanban-matsuo-progress-bar" });
+      const barInner = barOuter.createDiv({ cls: "kanban-matsuo-progress-fill" });
+      const pct = total > 0 ? done / total * 100 : 0;
+      barInner.style.setProperty("--progress-pct", `${pct}%`);
+      progressEl.createSpan({
+        cls: "kanban-matsuo-progress-text",
+        text: t("subtask.progress", { done, total })
+      });
+    }
+  }
+  countSubTasks(subtasks) {
+    let done = 0, total = 0;
+    for (const s of subtasks) {
+      total++;
+      if (s.checked) done++;
+      const child = this.countSubTasks(s.subtasks);
+      done += child.done;
+      total += child.total;
+    }
+    return { done, total };
   }
   /** Setup touch drag for lane reorder (mobile) */
   setupTouchDrag(handle, el, lane) {
@@ -1327,6 +1419,7 @@ var ConfirmDeleteModal = class extends import_obsidian.Modal {
 var CardEditorModal = class extends import_obsidian.Modal {
   constructor(app, item, onSave) {
     super(app);
+    this.hideDone = false;
     this.item = item;
     this.onSave = onSave;
   }
@@ -1375,6 +1468,7 @@ var CardEditorModal = class extends import_obsidian.Modal {
       }
     });
     bodyInput.value = this.item.body || "";
+    this.renderSubTaskEditor(contentEl);
     new import_obsidian.Setting(contentEl).addButton((btn) => {
       btn.setButtonText(t("modal.save")).setCta().onClick(() => {
         this.saveAndClose(titleInput, tagsInput, dateInput, bodyInput);
@@ -1402,6 +1496,84 @@ var CardEditorModal = class extends import_obsidian.Modal {
     this.item.body = bodyEl.value.trim();
     this.onSave(this.item);
     this.close();
+  }
+  renderSubTaskEditor(container) {
+    const section = container.createDiv({ cls: "kanban-matsuo-subtask-editor" });
+    const header = section.createDiv({ cls: "kanban-matsuo-subtask-header" });
+    header.createEl("h4", { text: t("subtask.add"), cls: "kanban-matsuo-subtask-heading" });
+    if (this.item.subtasks.length > 0) {
+      const toggleBtn = header.createEl("button", {
+        cls: "kanban-matsuo-subtask-toggle clickable-icon",
+        text: this.hideDone ? t("subtask.show-done") : t("subtask.collapse-done")
+      });
+      toggleBtn.addEventListener("click", () => {
+        this.hideDone = !this.hideDone;
+        this.rerenderSubTasks(section);
+      });
+    }
+    this.renderSubTaskList(section, this.item.subtasks, 0);
+    const addRow = section.createDiv({ cls: "kanban-matsuo-subtask-add" });
+    const addInput = addRow.createEl("input", {
+      cls: "kanban-matsuo-editor-input",
+      attr: { type: "text", placeholder: t("subtask.add-placeholder"), "aria-label": t("subtask.add") }
+    });
+    addInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) {
+        const val = addInput.value.trim();
+        if (val) {
+          const st = createSubTask(val);
+          this.item.subtasks.push(st);
+          addInput.value = "";
+          this.rerenderSubTasks(section);
+        }
+      }
+    });
+  }
+  rerenderSubTasks(section) {
+    section.empty();
+    this.renderSubTaskEditor(section.parentElement);
+    section.remove();
+  }
+  renderSubTaskList(container, subtasks, depth) {
+    const list = container.createDiv({ cls: "kanban-matsuo-subtask-list" });
+    if (depth > 0) list.style.setProperty("--subtask-depth", `${depth}`);
+    for (let i = 0; i < subtasks.length; i++) {
+      const st = subtasks[i];
+      if (this.hideDone && st.checked) continue;
+      const row = list.createDiv({ cls: "kanban-matsuo-subtask-row" });
+      const checkbox = row.createEl("input", {
+        attr: { type: "checkbox", "aria-label": st.title },
+        cls: "kanban-matsuo-subtask-checkbox"
+      });
+      checkbox.checked = st.checked;
+      checkbox.addEventListener("change", () => {
+        st.checked = checkbox.checked;
+        row.toggleClass("kanban-matsuo-subtask-done", st.checked);
+      });
+      const titleEl = row.createSpan({
+        cls: `kanban-matsuo-subtask-title${st.checked ? " kanban-matsuo-subtask-done" : ""}`,
+        text: st.title
+      });
+      titleEl.contentEditable = "true";
+      titleEl.addEventListener("blur", () => {
+        var _a;
+        const val = (_a = titleEl.textContent) == null ? void 0 : _a.trim();
+        if (val) st.title = val;
+      });
+      const deleteBtn = row.createEl("button", {
+        cls: "kanban-matsuo-subtask-delete clickable-icon",
+        attr: { "aria-label": t("subtask.delete") }
+      });
+      (0, import_obsidian.setIcon)(deleteBtn, "x");
+      deleteBtn.addEventListener("click", () => {
+        subtasks.splice(i, 1);
+        row.remove();
+      });
+      if (st.checked) row.addClass("kanban-matsuo-subtask-done");
+      if (st.subtasks.length > 0) {
+        this.renderSubTaskList(row, st.subtasks, depth + 1);
+      }
+    }
   }
   onClose() {
     this.contentEl.empty();
