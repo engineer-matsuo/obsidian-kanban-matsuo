@@ -571,8 +571,6 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.filterValue = "";
     // External change detection (counter to handle concurrent saves)
     this.ignoreModifyCount = 0;
-    // Track drag X position for indent detection
-    this.dragStartX = 0;
     this.plugin = plugin;
   }
   getViewType() {
@@ -929,7 +927,6 @@ var KanbanView = class extends import_obsidian.ItemView {
     cardEl.addEventListener("dragstart", (e) => {
       this.draggedItem = item;
       this.draggedFromLane = lane;
-      this.dragStartX = e.clientX;
       cardEl.addClass("kanban-matsuo-card-dragging");
       if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = "move";
@@ -1176,18 +1173,39 @@ var KanbanView = class extends import_obsidian.ItemView {
       }
     });
   }
+  // Drag state for indent detection
   handleDragOver(e, listEl) {
     if (!this.draggedItem) return;
     this.removePlaceholder();
     this.dragPlaceholder = listEl.createDiv({ cls: "kanban-matsuo-drop-placeholder" });
     this.dragPlaceholder.remove();
-    const dx = e.clientX - this.dragStartX;
-    const indentLevel = Math.max(0, Math.floor(dx / 40));
-    this.dragPlaceholder.style.setProperty("--card-depth", `${indentLevel}`);
-    if (indentLevel > 0) this.dragPlaceholder.addClass("kanban-matsuo-drop-placeholder-indented");
     const afterEl = this.getDragAfterElement(listEl, e.clientY);
     if (afterEl) listEl.insertBefore(this.dragPlaceholder, afterEl);
     else listEl.appendChild(this.dragPlaceholder);
+    const aboveEl = this.getCardAbovePlaceholder(listEl);
+    const aboveDepth = aboveEl ? this.getCardDepth(aboveEl) : -1;
+    const listRect = listEl.getBoundingClientRect();
+    const relativeX = e.clientX - listRect.left;
+    let targetDepth = Math.max(0, Math.floor(relativeX / 60));
+    targetDepth = Math.min(targetDepth, aboveDepth + 1);
+    this.dragPlaceholder.style.setProperty("--card-depth", `${targetDepth}`);
+    if (targetDepth > 0) {
+      this.dragPlaceholder.addClass("kanban-matsuo-drop-placeholder-indented");
+    } else {
+      this.dragPlaceholder.removeClass("kanban-matsuo-drop-placeholder-indented");
+    }
+  }
+  getCardAbovePlaceholder(listEl) {
+    let lastCard = null;
+    for (const child of Array.from(listEl.children)) {
+      if (child === this.dragPlaceholder) break;
+      if (child.classList.contains("kanban-matsuo-card")) lastCard = child;
+    }
+    return lastCard;
+  }
+  getCardDepth(el) {
+    const depthStr = el.style.getPropertyValue("--card-depth");
+    return depthStr ? parseInt(depthStr, 10) : 0;
   }
   getDragAfterElement(container, y) {
     const cards = Array.from(container.querySelectorAll(".kanban-matsuo-card:not(.kanban-matsuo-card-dragging)"));
@@ -1204,63 +1222,70 @@ var KanbanView = class extends import_obsidian.ItemView {
   handleDrop(targetLane, listEl) {
     if (!this.draggedItem || !this.draggedFromLane || !this.board) return;
     this.removeItemRecursive(this.draggedFromLane.items, this.draggedItem);
-    const dx = this.dragPlaceholder ? parseInt(this.dragPlaceholder.style.getPropertyValue("--card-depth") || "0", 10) : 0;
+    const targetDepth = this.dragPlaceholder ? parseInt(this.dragPlaceholder.style.getPropertyValue("--card-depth") || "0", 10) : 0;
+    const flatList = this.buildFlatList(targetLane.items, 0);
     const cardsBefore = [];
     if (this.dragPlaceholder) {
       for (const child of Array.from(listEl.children)) {
         if (child === this.dragPlaceholder) break;
         if (child.classList.contains("kanban-matsuo-card")) {
-          cardsBefore.push(child);
+          const id = child.getAttribute("data-item-id");
+          if (id) cardsBefore.push(id);
         }
       }
     }
-    if (dx > 0 && cardsBefore.length > 0) {
-      const aboveEl = cardsBefore[cardsBefore.length - 1];
-      const aboveId = aboveEl.getAttribute("data-item-id");
-      const parentItem = aboveId ? this.findItemById(targetLane.items, aboveId) : null;
+    if (targetDepth === 0) {
+      const insertIdx = this.findTopLevelInsertIndex(targetLane, cardsBefore);
+      targetLane.items.splice(insertIdx, 0, this.draggedItem);
+    } else {
+      let parentItem = null;
+      for (let i = cardsBefore.length - 1; i >= 0; i--) {
+        const entry = flatList.find((f) => f.item.id === cardsBefore[i]);
+        if (entry && entry.depth < targetDepth) {
+          parentItem = entry.item;
+          break;
+        }
+      }
       if (parentItem) {
-        parentItem.children.push(this.draggedItem);
+        const lastAboveId = cardsBefore[cardsBefore.length - 1];
+        const lastAboveIdx = parentItem.children.findIndex((c) => c.id === lastAboveId);
+        if (lastAboveIdx >= 0) {
+          parentItem.children.splice(lastAboveIdx + 1, 0, this.draggedItem);
+        } else {
+          parentItem.children.push(this.draggedItem);
+        }
       } else {
         targetLane.items.push(this.draggedItem);
       }
-    } else {
-      let insertIdx = this.flatVisibleIndex(targetLane, cardsBefore.length);
-      targetLane.items.splice(insertIdx, 0, this.draggedItem);
     }
     this.removePlaceholder();
     this.render();
     this.scheduleSave();
   }
-  /**
-   * Find a KanbanItem by id recursively.
-   */
-  findItemById(items, id) {
+  buildFlatList(items, depth) {
+    const result = [];
     for (const item of items) {
-      if (item.id === id) return item;
-      const found = this.findItemById(item.children, id);
-      if (found) return found;
+      if (!item.archived) {
+        result.push({ item, depth });
+        result.push(...this.buildFlatList(item.children, depth + 1));
+      }
     }
-    return null;
+    return result;
   }
-  /**
-   * Convert a flat visible card index to the actual index in lane.items (top-level only).
-   */
-  flatVisibleIndex(lane, visibleBefore) {
-    let count = 0;
-    for (let i = 0; i < lane.items.length; i++) {
-      if (!lane.items[i].archived) {
-        if (count === visibleBefore) return i;
-        count += this.countVisible(lane.items[i]);
+  findTopLevelInsertIndex(lane, cardsBefore) {
+    if (cardsBefore.length === 0) return 0;
+    const lastAboveId = cardsBefore[cardsBefore.length - 1];
+    for (let i = lane.items.length - 1; i >= 0; i--) {
+      const topItem = lane.items[i];
+      if (this.containsId(topItem, lastAboveId)) {
+        return i + 1;
       }
     }
     return lane.items.length;
   }
-  countVisible(item) {
-    let count = 1;
-    for (const child of item.children) {
-      if (!child.archived) count += this.countVisible(child);
-    }
-    return count;
+  containsId(item, id) {
+    if (item.id === id) return true;
+    return item.children.some((c) => this.containsId(c, id));
   }
   removePlaceholder() {
     if (this.dragPlaceholder) {

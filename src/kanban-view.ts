@@ -440,7 +440,6 @@ export class KanbanView extends ItemView {
 
 		cardEl.addEventListener('dragstart', (e) => {
 			this.draggedItem = item; this.draggedFromLane = lane;
-			this.dragStartX = e.clientX;
 			cardEl.addClass('kanban-matsuo-card-dragging');
 			if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.id); }
 		});
@@ -654,8 +653,7 @@ export class KanbanView extends ItemView {
 	}
 
 
-	// Track drag X position for indent detection
-	private dragStartX = 0;
+	// Drag state for indent detection
 
 	private handleDragOver(e: DragEvent, listEl: HTMLElement): void {
 		if (!this.draggedItem) return;
@@ -663,15 +661,43 @@ export class KanbanView extends ItemView {
 		this.dragPlaceholder = listEl.createDiv({ cls: 'kanban-matsuo-drop-placeholder' });
 		this.dragPlaceholder.remove();
 
-		// Show indent level based on X offset
-		const dx = e.clientX - this.dragStartX;
-		const indentLevel = Math.max(0, Math.floor(dx / 40));
-		this.dragPlaceholder.style.setProperty('--card-depth', `${indentLevel}`);
-		if (indentLevel > 0) this.dragPlaceholder.addClass('kanban-matsuo-drop-placeholder-indented');
-
 		const afterEl = this.getDragAfterElement(listEl, e.clientY);
 		if (afterEl) listEl.insertBefore(this.dragPlaceholder, afterEl);
 		else listEl.appendChild(this.dragPlaceholder);
+
+		// Get the card above the placeholder to determine max allowed depth
+		const aboveEl = this.getCardAbovePlaceholder(listEl);
+		const aboveDepth = aboveEl ? this.getCardDepth(aboveEl) : -1;
+
+		// Calculate target depth from mouse X relative to list left edge
+		// Each indent level = 40px from the list's left edge
+		const listRect = listEl.getBoundingClientRect();
+		const relativeX = e.clientX - listRect.left;
+		let targetDepth = Math.max(0, Math.floor(relativeX / 60));
+
+		// Clamp: can only go 1 level deeper than the card above
+		targetDepth = Math.min(targetDepth, aboveDepth + 1);
+
+		this.dragPlaceholder.style.setProperty('--card-depth', `${targetDepth}`);
+		if (targetDepth > 0) {
+			this.dragPlaceholder.addClass('kanban-matsuo-drop-placeholder-indented');
+		} else {
+			this.dragPlaceholder.removeClass('kanban-matsuo-drop-placeholder-indented');
+		}
+	}
+
+	private getCardAbovePlaceholder(listEl: HTMLElement): HTMLElement | null {
+		let lastCard: HTMLElement | null = null;
+		for (const child of Array.from(listEl.children)) {
+			if (child === this.dragPlaceholder) break;
+			if (child.classList.contains('kanban-matsuo-card')) lastCard = child as HTMLElement;
+		}
+		return lastCard;
+	}
+
+	private getCardDepth(el: HTMLElement): number {
+		const depthStr = el.style.getPropertyValue('--card-depth');
+		return depthStr ? parseInt(depthStr, 10) : 0;
 	}
 
 	private getDragAfterElement(container: HTMLElement, y: number): HTMLElement | null {
@@ -693,36 +719,55 @@ export class KanbanView extends ItemView {
 		// Remove from source (could be top-level or nested)
 		this.removeItemRecursive(this.draggedFromLane.items, this.draggedItem);
 
-		// Determine indent level from drag X offset
-		const dx = this.dragPlaceholder
+		// Get target depth from placeholder
+		const targetDepth = this.dragPlaceholder
 			? parseInt(this.dragPlaceholder.style.getPropertyValue('--card-depth') || '0', 10)
 			: 0;
 
-		// Find the card above the drop position to determine parent
-		const cardsBefore: HTMLElement[] = [];
+		// Build a flat list of visible cards with their items and depths
+		const flatList = this.buildFlatList(targetLane.items, 0);
+
+		// Find index in flat list where we're inserting
+		const cardsBefore: string[] = [];
 		if (this.dragPlaceholder) {
 			for (const child of Array.from(listEl.children)) {
 				if (child === this.dragPlaceholder) break;
 				if (child.classList.contains('kanban-matsuo-card')) {
-					cardsBefore.push(child as HTMLElement);
+					const id = child.getAttribute('data-item-id');
+					if (id) cardsBefore.push(id);
 				}
 			}
 		}
 
-		if (dx > 0 && cardsBefore.length > 0) {
-			// Find the card just above and make it the parent
-			const aboveEl = cardsBefore[cardsBefore.length - 1];
-			const aboveId = aboveEl.getAttribute('data-item-id');
-			const parentItem = aboveId ? this.findItemById(targetLane.items, aboveId) : null;
+		if (targetDepth === 0) {
+			// Insert at top level
+			const insertIdx = this.findTopLevelInsertIndex(targetLane, cardsBefore);
+			targetLane.items.splice(insertIdx, 0, this.draggedItem);
+		} else {
+			// Find the parent: walk backwards through cards above to find one at depth = targetDepth - 1
+			let parentItem: KanbanItem | null = null;
+			for (let i = cardsBefore.length - 1; i >= 0; i--) {
+				const entry = flatList.find((f) => f.item.id === cardsBefore[i]);
+				if (entry && entry.depth < targetDepth) {
+					parentItem = entry.item;
+					break;
+				}
+			}
+
 			if (parentItem) {
-				parentItem.children.push(this.draggedItem);
+				// Find insert position within parent's children
+				// By default append at end, but if there are cards below from same parent, insert before
+				const lastAboveId = cardsBefore[cardsBefore.length - 1];
+				const lastAboveIdx = parentItem.children.findIndex((c) => c.id === lastAboveId);
+				if (lastAboveIdx >= 0) {
+					parentItem.children.splice(lastAboveIdx + 1, 0, this.draggedItem);
+				} else {
+					parentItem.children.push(this.draggedItem);
+				}
 			} else {
+				// Fallback: top level
 				targetLane.items.push(this.draggedItem);
 			}
-		} else {
-			// Top-level: insert at the correct position
-			let insertIdx = this.flatVisibleIndex(targetLane, cardsBefore.length);
-			targetLane.items.splice(insertIdx, 0, this.draggedItem);
 		}
 
 		this.removePlaceholder();
@@ -730,39 +775,37 @@ export class KanbanView extends ItemView {
 		this.scheduleSave();
 	}
 
-	/**
-	 * Find a KanbanItem by id recursively.
-	 */
-	private findItemById(items: KanbanItem[], id: string): KanbanItem | null {
+	private buildFlatList(items: KanbanItem[], depth: number): { item: KanbanItem; depth: number }[] {
+		const result: { item: KanbanItem; depth: number }[] = [];
 		for (const item of items) {
-			if (item.id === id) return item;
-			const found = this.findItemById(item.children, id);
-			if (found) return found;
+			if (!item.archived) {
+				result.push({ item, depth });
+				result.push(...this.buildFlatList(item.children, depth + 1));
+			}
 		}
-		return null;
+		return result;
 	}
 
-	/**
-	 * Convert a flat visible card index to the actual index in lane.items (top-level only).
-	 */
-	private flatVisibleIndex(lane: KanbanLane, visibleBefore: number): number {
-		let count = 0;
-		for (let i = 0; i < lane.items.length; i++) {
-			if (!lane.items[i].archived) {
-				if (count === visibleBefore) return i;
-				count += this.countVisible(lane.items[i]);
+	private findTopLevelInsertIndex(lane: KanbanLane, cardsBefore: string[]): number {
+		if (cardsBefore.length === 0) return 0;
+
+		const lastAboveId = cardsBefore[cardsBefore.length - 1];
+
+		// Find which top-level item owns the last card above
+		for (let i = lane.items.length - 1; i >= 0; i--) {
+			const topItem = lane.items[i];
+			if (this.containsId(topItem, lastAboveId)) {
+				return i + 1;
 			}
 		}
 		return lane.items.length;
 	}
 
-	private countVisible(item: KanbanItem): number {
-		let count = 1;
-		for (const child of item.children) {
-			if (!child.archived) count += this.countVisible(child);
-		}
-		return count;
+	private containsId(item: KanbanItem, id: string): boolean {
+		if (item.id === id) return true;
+		return item.children.some((c) => this.containsId(c, id));
 	}
+
 
 	private removePlaceholder(): void {
 		if (this.dragPlaceholder) { this.dragPlaceholder.remove(); this.dragPlaceholder = null; }
