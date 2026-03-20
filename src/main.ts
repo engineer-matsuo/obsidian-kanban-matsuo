@@ -256,10 +256,16 @@ export default class KanbanPlugin extends Plugin {
 		for (const leaf of leaves) {
 			const view = leaf.view;
 			if (view instanceof KanbanView) {
-				const file = view.getFile();
-				if (file) {
-					await view.loadFile(file);
+				// Apply plugin settings to the board's own settings
+				const board = view.getBoard();
+				if (board) {
+					board.settings.laneWidth = this.settings.laneWidth;
+					board.settings.showTags = this.settings.showTags;
+					board.settings.showDates = this.settings.showDates;
+					board.settings.showCheckboxes = this.settings.showCheckboxes;
+					await view.saveBoard(board);
 				}
+				view.refresh();
 			}
 		}
 	}

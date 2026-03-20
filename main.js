@@ -39,7 +39,8 @@ var DEFAULT_PLUGIN_SETTINGS = {
   autoSaveDelay: 500,
   language: "auto",
   boardTemplatePath: "",
-  newlineKey: "shift+enter"
+  newlineKey: "shift+enter",
+  timezone: "local"
 };
 var DEFAULT_BOARD_SETTINGS = {
   laneWidth: 272,
@@ -276,7 +277,24 @@ var en = {
   // Input
   "settings.input": "Input",
   "settings.newline-key": "Newline key",
-  "settings.newline-key-desc": "Key combination to insert a newline in card text."
+  "settings.newline-key-desc": "Key combination to insert a newline in card text.",
+  // Timezone
+  "settings.timezone": "Timezone for dates",
+  "settings.timezone-desc": "Timezone used for date filters (today, this week, overdue).",
+  "settings.timezone-local": "Local time",
+  "settings.timezone-utc": "UTC",
+  // Card editor modal
+  "card-editor.title": "Edit card",
+  "card-editor.card-title": "Title",
+  "card-editor.card-title-placeholder": "Card title",
+  "card-editor.tags": "Tags",
+  "card-editor.tags-desc": "Comma-separated (e.g. bug, urgent, feature).",
+  "card-editor.tags-placeholder": "bug, urgent",
+  "card-editor.due-date": "Due date",
+  "card-editor.due-date-desc": "YYYY-MM-DD format.",
+  "card-editor.clear-date": "Clear",
+  "card-editor.body": "Description",
+  "card-editor.body-placeholder": "Card description (optional)"
 };
 
 // src/lang/ja.ts
@@ -367,7 +385,24 @@ var ja = {
   // Input
   "settings.input": "\u5165\u529B",
   "settings.newline-key": "\u6539\u884C\u30AD\u30FC",
-  "settings.newline-key-desc": "\u30AB\u30FC\u30C9\u306E\u30C6\u30AD\u30B9\u30C8\u5185\u3067\u6539\u884C\u3092\u633F\u5165\u3059\u308B\u30AD\u30FC\u306E\u7D44\u307F\u5408\u308F\u305B\u3002"
+  "settings.newline-key-desc": "\u30AB\u30FC\u30C9\u306E\u30C6\u30AD\u30B9\u30C8\u5185\u3067\u6539\u884C\u3092\u633F\u5165\u3059\u308B\u30AD\u30FC\u306E\u7D44\u307F\u5408\u308F\u305B\u3002",
+  // Timezone
+  "settings.timezone": "\u65E5\u4ED8\u306E\u30BF\u30A4\u30E0\u30BE\u30FC\u30F3",
+  "settings.timezone-desc": "\u65E5\u4ED8\u30D5\u30A3\u30EB\u30BF\uFF08\u4ECA\u65E5\u3001\u4ECA\u9031\u3001\u671F\u9650\u5207\u308C\uFF09\u3067\u4F7F\u7528\u3059\u308B\u30BF\u30A4\u30E0\u30BE\u30FC\u30F3\u3002",
+  "settings.timezone-local": "\u30ED\u30FC\u30AB\u30EB\u6642\u9593",
+  "settings.timezone-utc": "UTC",
+  // Card editor modal
+  "card-editor.title": "\u30AB\u30FC\u30C9\u3092\u7DE8\u96C6",
+  "card-editor.card-title": "\u30BF\u30A4\u30C8\u30EB",
+  "card-editor.card-title-placeholder": "\u30AB\u30FC\u30C9\u306E\u30BF\u30A4\u30C8\u30EB",
+  "card-editor.tags": "\u30BF\u30B0",
+  "card-editor.tags-desc": "\u30AB\u30F3\u30DE\u533A\u5207\u308A\uFF08\u4F8B: bug, urgent, feature\uFF09\u3002",
+  "card-editor.tags-placeholder": "bug, urgent",
+  "card-editor.due-date": "\u671F\u65E5",
+  "card-editor.due-date-desc": "YYYY-MM-DD \u5F62\u5F0F\u3002",
+  "card-editor.clear-date": "\u30AF\u30EA\u30A2",
+  "card-editor.body": "\u8AAC\u660E",
+  "card-editor.body-placeholder": "\u30AB\u30FC\u30C9\u306E\u8AAC\u660E\uFF08\u4EFB\u610F\uFF09"
 };
 
 // src/lang/index.ts
@@ -466,6 +501,24 @@ var KanbanView = class extends import_obsidian.ItemView {
   /** Public accessor for commands in main.ts */
   getFile() {
     return this.file;
+  }
+  /** Get today's date string respecting timezone setting */
+  getToday() {
+    const tz = this.plugin.settings.timezone;
+    if (tz === "local") {
+      const now = /* @__PURE__ */ new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, "0");
+      const d = String(now.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(/* @__PURE__ */ new Date());
+    return parts;
   }
   /** Save a board state and re-render (for use by commands in main.ts) */
   async saveBoard(board) {
@@ -594,7 +647,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     if (this.filterMode === "none") return true;
     if (this.filterMode === "tag") return item.tags.includes(this.filterValue);
     if (this.filterMode === "date") {
-      const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      const today = this.getToday();
       switch (this.filterValue) {
         case "overdue":
           return item.dueDate !== null && item.dueDate < today;
@@ -602,9 +655,20 @@ var KanbanView = class extends import_obsidian.ItemView {
           return item.dueDate === today;
         case "week": {
           if (!item.dueDate) return false;
-          const d = new Date(today);
-          d.setDate(d.getDate() + 7);
-          return item.dueDate >= today && item.dueDate <= d.toISOString().slice(0, 10);
+          const now = /* @__PURE__ */ new Date(today + "T00:00:00");
+          const day = now.getDay();
+          const diffToMon = day === 0 ? -6 : 1 - day;
+          const monday = new Date(now);
+          monday.setDate(now.getDate() + diffToMon);
+          const sunday = new Date(monday);
+          sunday.setDate(monday.getDate() + 6);
+          const fmt = (d) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, "0");
+            const dd = String(d.getDate()).padStart(2, "0");
+            return `${y}-${m}-${dd}`;
+          };
+          return item.dueDate >= fmt(monday) && item.dueDate <= fmt(sunday);
         }
         case "none":
           return item.dueDate === null;
@@ -749,7 +813,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     cardEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        this.startInlineEdit(cardEl, item);
+        this.openCardEditor(item, lane);
       } else if ((e.key === "Delete" || e.key === "Backspace") && e.shiftKey) {
         e.preventDefault();
         this.deleteItem(item, lane);
@@ -758,6 +822,10 @@ var KanbanView = class extends import_obsidian.ItemView {
     cardEl.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       this.showCardMenu(e, item, lane);
+    });
+    cardEl.addEventListener("click", (e) => {
+      if (e.target.closest("input, a")) return;
+      this.openCardEditor(item, lane);
     });
     if (this.board.settings.showCheckboxes) {
       const checkboxEl = cardEl.createEl("input", {
@@ -791,7 +859,6 @@ var KanbanView = class extends import_obsidian.ItemView {
         }
       });
     });
-    titleEl.addEventListener("dblclick", () => this.startInlineEdit(cardEl, item));
     if (this.board.settings.showTags && item.tags.length > 0) {
       const tagsEl = bodyEl.createDiv({ cls: "kanban-matsuo-card-tags" });
       for (const tag of item.tags) {
@@ -806,7 +873,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     }
     if (this.board.settings.showDates && item.dueDate) {
       const dateEl = bodyEl.createDiv({ cls: "kanban-matsuo-card-date" });
-      const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      const today = this.getToday();
       if (item.dueDate < today) dateEl.addClass("kanban-matsuo-date-overdue");
       else if (item.dueDate === today) dateEl.addClass("kanban-matsuo-date-today");
       dateEl.setText(`\u{1F4C5} ${item.dueDate}`);
@@ -949,47 +1016,6 @@ var KanbanView = class extends import_obsidian.ItemView {
       }
     });
   }
-  startInlineEdit(cardEl, item) {
-    const titleEl = cardEl.querySelector(".kanban-matsuo-card-title");
-    if (!titleEl) return;
-    const parent = titleEl.parentElement;
-    if (!parent) return;
-    const textarea = parent.createEl("textarea", {
-      cls: "kanban-matsuo-inline-edit",
-      attr: { "aria-label": t("card.edit-title"), rows: "1" }
-    });
-    textarea.value = item.title;
-    titleEl.replaceWith(textarea);
-    textarea.focus();
-    textarea.select();
-    const autoResize = () => {
-      textarea.style.setProperty("--textarea-height", "auto");
-      textarea.style.setProperty("--textarea-height", `${textarea.scrollHeight}px`);
-    };
-    autoResize();
-    textarea.addEventListener("input", autoResize);
-    const finishEdit = () => {
-      const newTitle = textarea.value.trim();
-      if (newTitle && newTitle !== item.title) {
-        item.title = newTitle;
-        item.tags = extractTags(newTitle);
-        item.dueDate = extractDate(newTitle);
-        this.scheduleSave();
-      }
-      this.render();
-    };
-    textarea.addEventListener("blur", finishEdit);
-    textarea.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.isComposing) {
-        if (this.isNewlineKey(e)) return;
-        e.preventDefault();
-        textarea.blur();
-      } else if (e.key === "Escape") {
-        textarea.value = item.title;
-        textarea.blur();
-      }
-    });
-  }
   handleDragOver(e, listEl) {
     if (!this.draggedItem) return;
     this.removePlaceholder();
@@ -1047,9 +1073,7 @@ var KanbanView = class extends import_obsidian.ItemView {
   showCardMenu(e, item, lane) {
     const menu = new import_obsidian.Menu();
     menu.addItem((mi) => mi.setTitle(t("card.edit")).setIcon("pencil").onClick(() => {
-      var _a;
-      const cardEl = (_a = this.boardEl) == null ? void 0 : _a.querySelector(`[data-item-id="${item.id}"]`);
-      if (cardEl) this.startInlineEdit(cardEl, item);
+      this.openCardEditor(item, lane);
     }));
     menu.addItem((mi) => mi.setTitle(item.checked ? t("card.mark-incomplete") : t("card.mark-complete")).setIcon(item.checked ? "square" : "check-square").onClick(() => {
       item.checked = !item.checked;
@@ -1127,6 +1151,12 @@ var KanbanView = class extends import_obsidian.ItemView {
       this.scheduleSave();
     }
   }
+  openCardEditor(item, _lane) {
+    new CardEditorModal(this.app, item, () => {
+      this.render();
+      this.scheduleSave();
+    }).open();
+  }
   filterCards(query) {
     var _a;
     const q = query.toLowerCase().trim();
@@ -1186,6 +1216,89 @@ var ConfirmDeleteModal = class extends import_obsidian.Modal {
       this.onConfirm();
       this.close();
     })).addButton((btn) => btn.setButtonText(t("modal.cancel")).onClick(() => this.close()));
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+var CardEditorModal = class extends import_obsidian.Modal {
+  constructor(app, item, onSave) {
+    super(app);
+    this.item = item;
+    this.onSave = onSave;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("kanban-matsuo-card-editor");
+    contentEl.createEl("h3", { text: t("card-editor.title") });
+    let titleValue = this.item.title.replace(/#[^\s#]+/g, "").replace(/@\{\d{4}-\d{2}-\d{2}\}/g, "").trim();
+    const titleSetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.card-title"));
+    const titleInput = titleSetting.controlEl.createEl("textarea", {
+      cls: "kanban-matsuo-editor-textarea",
+      attr: {
+        placeholder: t("card-editor.card-title-placeholder"),
+        rows: "2",
+        "aria-label": t("card-editor.card-title")
+      }
+    });
+    titleInput.value = titleValue;
+    const tagsSetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.tags")).setDesc(t("card-editor.tags-desc"));
+    const tagsInput = tagsSetting.controlEl.createEl("input", {
+      cls: "kanban-matsuo-editor-input",
+      attr: {
+        type: "text",
+        placeholder: t("card-editor.tags-placeholder"),
+        "aria-label": t("card-editor.tags")
+      }
+    });
+    tagsInput.value = this.item.tags.join(", ");
+    const dateSetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.due-date")).setDesc(t("card-editor.due-date-desc"));
+    const dateInput = dateSetting.controlEl.createEl("input", {
+      cls: "kanban-matsuo-editor-input",
+      attr: {
+        type: "date",
+        "aria-label": t("card-editor.due-date")
+      }
+    });
+    dateInput.value = this.item.dueDate || "";
+    const bodySetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.body"));
+    const bodyInput = bodySetting.controlEl.createEl("textarea", {
+      cls: "kanban-matsuo-editor-textarea",
+      attr: {
+        placeholder: t("card-editor.body-placeholder"),
+        rows: "4",
+        "aria-label": t("card-editor.body")
+      }
+    });
+    bodyInput.value = this.item.body || "";
+    new import_obsidian.Setting(contentEl).addButton((btn) => {
+      btn.setButtonText(t("modal.save")).setCta().onClick(() => {
+        this.saveAndClose(titleInput, tagsInput, dateInput, bodyInput);
+      });
+    }).addButton((btn) => {
+      btn.setButtonText(t("modal.cancel")).onClick(() => this.close());
+    });
+    titleInput.focus();
+  }
+  saveAndClose(titleEl, tagsEl, dateEl, bodyEl) {
+    const title = titleEl.value.trim();
+    if (!title) return;
+    const tags = tagsEl.value.split(",").map((s) => s.trim().replace(/^#/, "")).filter((s) => s.length > 0);
+    const dueDate = dateEl.value || null;
+    let fullTitle = title;
+    if (tags.length > 0) {
+      fullTitle += " " + tags.map((tag) => `#${tag}`).join(" ");
+    }
+    if (dueDate) {
+      fullTitle += ` @{${dueDate}}`;
+    }
+    this.item.title = fullTitle;
+    this.item.tags = tags;
+    this.item.dueDate = dueDate;
+    this.item.body = bodyEl.value.trim();
+    this.onSave(this.item);
+    this.close();
   }
   onClose() {
     this.contentEl.empty();
@@ -1255,6 +1368,37 @@ var KanbanSettingTab = class extends import_obsidian2.PluginSettingTab {
         }
       })
     );
+    new import_obsidian2.Setting(containerEl).setName(t("settings.timezone")).setDesc(t("settings.timezone-desc")).addDropdown((dropdown) => {
+      const zones = [
+        ["local", t("settings.timezone-local")],
+        ["UTC", "UTC (\xB10:00)"],
+        ["Asia/Tokyo", "JST - \u65E5\u672C\u6A19\u6E96\u6642 (UTC+9)"],
+        ["Asia/Shanghai", "CST - \u4E2D\u56FD\u6A19\u6E96\u6642 (UTC+8)"],
+        ["Asia/Kolkata", "IST - \u30A4\u30F3\u30C9\u6A19\u6E96\u6642 (UTC+5:30)"],
+        ["Asia/Seoul", "KST - \u97D3\u56FD\u6A19\u6E96\u6642 (UTC+9)"],
+        ["Asia/Singapore", "SGT - \u30B7\u30F3\u30AC\u30DD\u30FC\u30EB (UTC+8)"],
+        ["Asia/Bangkok", "ICT - \u30A4\u30F3\u30C9\u30B7\u30CA (UTC+7)"],
+        ["Australia/Sydney", "AEST - \u30AA\u30FC\u30B9\u30C8\u30E9\u30EA\u30A2\u6771\u90E8 (UTC+10/11)"],
+        ["Pacific/Auckland", "NZST - \u30CB\u30E5\u30FC\u30B8\u30FC\u30E9\u30F3\u30C9 (UTC+12/13)"],
+        ["Europe/London", "GMT/BST - \u30ED\u30F3\u30C9\u30F3 (UTC+0/1)"],
+        ["Europe/Paris", "CET/CEST - \u4E2D\u592E\u30E8\u30FC\u30ED\u30C3\u30D1 (UTC+1/2)"],
+        ["Europe/Berlin", "CET/CEST - \u30D9\u30EB\u30EA\u30F3 (UTC+1/2)"],
+        ["Europe/Moscow", "MSK - \u30E2\u30B9\u30AF\u30EF (UTC+3)"],
+        ["America/New_York", "EST/EDT - \u7C73\u56FD\u6771\u90E8 (UTC-5/-4)"],
+        ["America/Chicago", "CST/CDT - \u7C73\u56FD\u4E2D\u90E8 (UTC-6/-5)"],
+        ["America/Denver", "MST/MDT - \u7C73\u56FD\u5C71\u5CB3\u90E8 (UTC-7/-6)"],
+        ["America/Los_Angeles", "PST/PDT - \u7C73\u56FD\u592A\u5E73\u6D0B (UTC-8/-7)"],
+        ["America/Sao_Paulo", "BRT - \u30D6\u30E9\u30B8\u30EB (UTC-3)"],
+        ["Pacific/Honolulu", "HST - \u30CF\u30EF\u30A4 (UTC-10)"]
+      ];
+      for (const [value, label] of zones) {
+        dropdown.addOption(value, label);
+      }
+      dropdown.setValue(this.plugin.settings.timezone).onChange(async (value) => {
+        this.plugin.settings.timezone = value;
+        await this.plugin.saveSettings();
+      });
+    });
     new import_obsidian2.Setting(containerEl).setName(t("settings.input")).setHeading();
     new import_obsidian2.Setting(containerEl).setName(t("settings.newline-key")).setDesc(t("settings.newline-key-desc")).addDropdown(
       (dropdown) => dropdown.addOption("shift+enter", "Shift + Enter").addOption("ctrl+enter", "Ctrl + Enter").addOption("alt+enter", "Alt + Enter").setValue(this.plugin.settings.newlineKey).onChange(async (value) => {
@@ -1448,10 +1592,15 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
     for (const leaf of leaves) {
       const view = leaf.view;
       if (view instanceof KanbanView) {
-        const file = view.getFile();
-        if (file) {
-          await view.loadFile(file);
+        const board = view.getBoard();
+        if (board) {
+          board.settings.laneWidth = this.settings.laneWidth;
+          board.settings.showTags = this.settings.showTags;
+          board.settings.showDates = this.settings.showDates;
+          board.settings.showCheckboxes = this.settings.showCheckboxes;
+          await view.saveBoard(board);
         }
+        view.refresh();
       }
     }
   }

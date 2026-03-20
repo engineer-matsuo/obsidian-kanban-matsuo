@@ -127,6 +127,44 @@ export class KanbanSettingTab extends PluginSettingTab {
 					})
 			);
 
+		// Timezone
+		new Setting(containerEl)
+			.setName(t('settings.timezone'))
+			.setDesc(t('settings.timezone-desc'))
+			.addDropdown((dropdown) => {
+				const zones: [string, string][] = [
+					['local', t('settings.timezone-local')],
+					['UTC', 'UTC (±0:00)'],
+					['Asia/Tokyo', 'JST - 日本標準時 (UTC+9)'],
+					['Asia/Shanghai', 'CST - 中国標準時 (UTC+8)'],
+					['Asia/Kolkata', 'IST - インド標準時 (UTC+5:30)'],
+					['Asia/Seoul', 'KST - 韓国標準時 (UTC+9)'],
+					['Asia/Singapore', 'SGT - シンガポール (UTC+8)'],
+					['Asia/Bangkok', 'ICT - インドシナ (UTC+7)'],
+					['Australia/Sydney', 'AEST - オーストラリア東部 (UTC+10/11)'],
+					['Pacific/Auckland', 'NZST - ニュージーランド (UTC+12/13)'],
+					['Europe/London', 'GMT/BST - ロンドン (UTC+0/1)'],
+					['Europe/Paris', 'CET/CEST - 中央ヨーロッパ (UTC+1/2)'],
+					['Europe/Berlin', 'CET/CEST - ベルリン (UTC+1/2)'],
+					['Europe/Moscow', 'MSK - モスクワ (UTC+3)'],
+					['America/New_York', 'EST/EDT - 米国東部 (UTC-5/-4)'],
+					['America/Chicago', 'CST/CDT - 米国中部 (UTC-6/-5)'],
+					['America/Denver', 'MST/MDT - 米国山岳部 (UTC-7/-6)'],
+					['America/Los_Angeles', 'PST/PDT - 米国太平洋 (UTC-8/-7)'],
+					['America/Sao_Paulo', 'BRT - ブラジル (UTC-3)'],
+					['Pacific/Honolulu', 'HST - ハワイ (UTC-10)'],
+				];
+				for (const [value, label] of zones) {
+					dropdown.addOption(value, label);
+				}
+				dropdown
+					.setValue(this.plugin.settings.timezone)
+					.onChange(async (value) => {
+						this.plugin.settings.timezone = value;
+						await this.plugin.saveSettings();
+					});
+			});
+
 		// Input
 		new Setting(containerEl).setName(t('settings.input')).setHeading();
 

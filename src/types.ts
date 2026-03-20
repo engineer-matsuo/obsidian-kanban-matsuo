@@ -38,6 +38,7 @@ export interface KanbanPluginSettings {
 	language: 'auto' | 'en' | 'ja';
 	boardTemplatePath: string;
 	newlineKey: 'shift+enter' | 'ctrl+enter' | 'alt+enter';
+	timezone: string;
 }
 
 export const DEFAULT_PLUGIN_SETTINGS: KanbanPluginSettings = {
@@ -50,6 +51,7 @@ export const DEFAULT_PLUGIN_SETTINGS: KanbanPluginSettings = {
 	language: 'auto',
 	boardTemplatePath: '',
 	newlineKey: 'shift+enter',
+	timezone: 'local',
 };
 
 export const DEFAULT_BOARD_SETTINGS: KanbanBoardSettings = {

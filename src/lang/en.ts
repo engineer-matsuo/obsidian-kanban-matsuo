@@ -98,6 +98,25 @@ export const en = {
 	'settings.input': 'Input',
 	'settings.newline-key': 'Newline key',
 	'settings.newline-key-desc': 'Key combination to insert a newline in card text.',
+
+	// Timezone
+	'settings.timezone': 'Timezone for dates',
+	'settings.timezone-desc': 'Timezone used for date filters (today, this week, overdue).',
+	'settings.timezone-local': 'Local time',
+	'settings.timezone-utc': 'UTC',
+
+	// Card editor modal
+	'card-editor.title': 'Edit card',
+	'card-editor.card-title': 'Title',
+	'card-editor.card-title-placeholder': 'Card title',
+	'card-editor.tags': 'Tags',
+	'card-editor.tags-desc': 'Comma-separated (e.g. bug, urgent, feature).',
+	'card-editor.tags-placeholder': 'bug, urgent',
+	'card-editor.due-date': 'Due date',
+	'card-editor.due-date-desc': 'YYYY-MM-DD format.',
+	'card-editor.clear-date': 'Clear',
+	'card-editor.body': 'Description',
+	'card-editor.body-placeholder': 'Card description (optional)',
 };
 
 export type TranslationKey = keyof typeof en;

@@ -20,8 +20,6 @@ import {
 	boardToMarkdown,
 	createItem,
 	createLane,
-	extractTags,
-	extractDate,
 } from './parser';
 import { t } from './lang';
 
@@ -112,6 +110,26 @@ export class KanbanView extends ItemView {
 	/** Public accessor for commands in main.ts */
 	getFile(): TFile | null {
 		return this.file;
+	}
+
+	/** Get today's date string respecting timezone setting */
+	private getToday(): string {
+		const tz = this.plugin.settings.timezone;
+		if (tz === 'local') {
+			const now = new Date();
+			const y = now.getFullYear();
+			const m = String(now.getMonth() + 1).padStart(2, '0');
+			const d = String(now.getDate()).padStart(2, '0');
+			return `${y}-${m}-${d}`;
+		}
+		// Use Intl to get date in specified timezone
+		const parts = new Intl.DateTimeFormat('en-CA', {
+			timeZone: tz,
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+		}).format(new Date());
+		return parts; // en-CA outputs YYYY-MM-DD
 	}
 
 	/** Save a board state and re-render (for use by commands in main.ts) */
@@ -257,14 +275,24 @@ export class KanbanView extends ItemView {
 		if (this.filterMode === 'none') return true;
 		if (this.filterMode === 'tag') return item.tags.includes(this.filterValue);
 		if (this.filterMode === 'date') {
-			const today = new Date().toISOString().slice(0, 10);
+			const today = this.getToday();
 			switch (this.filterValue) {
 				case 'overdue': return item.dueDate !== null && item.dueDate < today;
 				case 'today': return item.dueDate === today;
 				case 'week': {
 					if (!item.dueDate) return false;
-					const d = new Date(today); d.setDate(d.getDate() + 7);
-					return item.dueDate >= today && item.dueDate <= d.toISOString().slice(0, 10);
+					const now = new Date(today + 'T00:00:00');
+					const day = now.getDay(); // 0=Sun,1=Mon,...,6=Sat
+					const diffToMon = day === 0 ? -6 : 1 - day;
+					const monday = new Date(now); monday.setDate(now.getDate() + diffToMon);
+					const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+					const fmt = (d: Date) => {
+						const y = d.getFullYear();
+						const m = String(d.getMonth() + 1).padStart(2, '0');
+						const dd = String(d.getDate()).padStart(2, '0');
+						return `${y}-${m}-${dd}`;
+					};
+					return item.dueDate >= fmt(monday) && item.dueDate <= fmt(sunday);
 				}
 				case 'none': return item.dueDate === null;
 			}
@@ -407,10 +435,16 @@ export class KanbanView extends ItemView {
 
 		// Keyboard
 		cardEl.addEventListener('keydown', (e: KeyboardEvent) => {
-			if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.startInlineEdit(cardEl, item); }
+			if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.openCardEditor(item, lane); }
 			else if ((e.key === 'Delete' || e.key === 'Backspace') && e.shiftKey) { e.preventDefault(); this.deleteItem(item, lane); }
 		});
 		cardEl.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showCardMenu(e, item, lane); });
+
+		// Click anywhere on card to open editor (ignore checkbox clicks)
+		cardEl.addEventListener('click', (e) => {
+			if ((e.target as HTMLElement).closest('input, a')) return;
+			this.openCardEditor(item, lane);
+		});
 
 		// Checkbox
 		if (this.board!.settings.showCheckboxes) {
@@ -446,7 +480,6 @@ export class KanbanView extends ItemView {
 			});
 		});
 
-		titleEl.addEventListener('dblclick', () => this.startInlineEdit(cardEl, item));
 
 		// Tags (clickable for filter)
 		if (this.board!.settings.showTags && item.tags.length > 0) {
@@ -460,7 +493,7 @@ export class KanbanView extends ItemView {
 		// Due date
 		if (this.board!.settings.showDates && item.dueDate) {
 			const dateEl = bodyEl.createDiv({ cls: 'kanban-matsuo-card-date' });
-			const today = new Date().toISOString().slice(0, 10);
+			const today = this.getToday();
 			if (item.dueDate < today) dateEl.addClass('kanban-matsuo-date-overdue');
 			else if (item.dueDate === today) dateEl.addClass('kanban-matsuo-date-today');
 			dateEl.setText(`📅 ${item.dueDate}`);
@@ -571,46 +604,6 @@ export class KanbanView extends ItemView {
 		});
 	}
 
-	private startInlineEdit(cardEl: HTMLElement, item: KanbanItem): void {
-		const titleEl = cardEl.querySelector('.kanban-matsuo-card-title') as HTMLElement;
-		if (!titleEl) return;
-		const parent = titleEl.parentElement;
-		if (!parent) return;
-
-		const textarea = parent.createEl('textarea', {
-			cls: 'kanban-matsuo-inline-edit',
-			attr: { 'aria-label': t('card.edit-title'), rows: '1' },
-		});
-		textarea.value = item.title;
-		titleEl.replaceWith(textarea);
-		textarea.focus();
-		textarea.select();
-
-		// Auto-resize to content
-		const autoResize = () => {
-			textarea.style.setProperty('--textarea-height', 'auto');
-			textarea.style.setProperty('--textarea-height', `${textarea.scrollHeight}px`);
-		};
-		autoResize();
-		textarea.addEventListener('input', autoResize);
-
-		const finishEdit = () => {
-			const newTitle = textarea.value.trim();
-			if (newTitle && newTitle !== item.title) { item.title = newTitle; item.tags = extractTags(newTitle); item.dueDate = extractDate(newTitle); this.scheduleSave(); }
-			this.render();
-		};
-		textarea.addEventListener('blur', finishEdit);
-		textarea.addEventListener('keydown', (e: KeyboardEvent) => {
-			if (e.key === 'Enter' && !e.isComposing) {
-				if (this.isNewlineKey(e)) return; // Allow newline
-				e.preventDefault();
-				textarea.blur();
-			} else if (e.key === 'Escape') {
-				textarea.value = item.title;
-				textarea.blur();
-			}
-		});
-	}
 
 	private handleDragOver(e: DragEvent, listEl: HTMLElement): void {
 		if (!this.draggedItem) return;
@@ -664,8 +657,7 @@ export class KanbanView extends ItemView {
 		const menu = new Menu();
 
 		menu.addItem((mi) => mi.setTitle(t('card.edit')).setIcon('pencil').onClick(() => {
-			const cardEl = this.boardEl?.querySelector(`[data-item-id="${item.id}"]`) as HTMLElement;
-			if (cardEl) this.startInlineEdit(cardEl, item);
+			this.openCardEditor(item, lane);
 		}));
 
 		menu.addItem((mi) => mi.setTitle(item.checked ? t('card.mark-incomplete') : t('card.mark-complete'))
@@ -727,6 +719,13 @@ export class KanbanView extends ItemView {
 		if (index >= 0) { this.board.lanes.splice(index, 1); this.render(); this.scheduleSave(); }
 	}
 
+	private openCardEditor(item: KanbanItem, _lane: KanbanLane): void {
+		new CardEditorModal(this.app, item, () => {
+			this.render();
+			this.scheduleSave();
+		}).open();
+	}
+
 	private filterCards(query: string): void {
 		const q = query.toLowerCase().trim();
 		const cards = this.boardEl?.querySelectorAll('.kanban-matsuo-card') as NodeListOf<HTMLElement>;
@@ -773,4 +772,134 @@ class ConfirmDeleteModal extends Modal {
 			.addButton((btn) => btn.setButtonText(t('modal.cancel')).onClick(() => this.close()));
 	}
 	onClose(): void { this.contentEl.empty(); }
+}
+
+/**
+ * Modal for editing a card's title, tags, due date, and body via GUI.
+ */
+class CardEditorModal extends Modal {
+	private item: KanbanItem;
+	private onSave: (item: KanbanItem) => void;
+
+	constructor(app: import('obsidian').App, item: KanbanItem, onSave: (item: KanbanItem) => void) {
+		super(app);
+		this.item = item;
+		this.onSave = onSave;
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.addClass('kanban-matsuo-card-editor');
+
+		contentEl.createEl('h3', { text: t('card-editor.title') });
+
+		// Title
+		let titleValue = this.item.title
+			.replace(/#[^\s#]+/g, '')
+			.replace(/@\{\d{4}-\d{2}-\d{2}\}/g, '')
+			.trim();
+		const titleSetting = new Setting(contentEl)
+			.setName(t('card-editor.card-title'));
+		const titleInput = titleSetting.controlEl.createEl('textarea', {
+			cls: 'kanban-matsuo-editor-textarea',
+			attr: {
+				placeholder: t('card-editor.card-title-placeholder'),
+				rows: '2',
+				'aria-label': t('card-editor.card-title'),
+			},
+		});
+		titleInput.value = titleValue;
+
+		// Tags
+		const tagsSetting = new Setting(contentEl)
+			.setName(t('card-editor.tags'))
+			.setDesc(t('card-editor.tags-desc'));
+		const tagsInput = tagsSetting.controlEl.createEl('input', {
+			cls: 'kanban-matsuo-editor-input',
+			attr: {
+				type: 'text',
+				placeholder: t('card-editor.tags-placeholder'),
+				'aria-label': t('card-editor.tags'),
+			},
+		});
+		(tagsInput as HTMLInputElement).value = this.item.tags.join(', ');
+
+		// Due date
+		const dateSetting = new Setting(contentEl)
+			.setName(t('card-editor.due-date'))
+			.setDesc(t('card-editor.due-date-desc'));
+		const dateInput = dateSetting.controlEl.createEl('input', {
+			cls: 'kanban-matsuo-editor-input',
+			attr: {
+				type: 'date',
+				'aria-label': t('card-editor.due-date'),
+			},
+		});
+		(dateInput as HTMLInputElement).value = this.item.dueDate || '';
+
+		// Body / description
+		const bodySetting = new Setting(contentEl)
+			.setName(t('card-editor.body'));
+		const bodyInput = bodySetting.controlEl.createEl('textarea', {
+			cls: 'kanban-matsuo-editor-textarea',
+			attr: {
+				placeholder: t('card-editor.body-placeholder'),
+				rows: '4',
+				'aria-label': t('card-editor.body'),
+			},
+		});
+		bodyInput.value = this.item.body || '';
+
+		// Buttons
+		new Setting(contentEl)
+			.addButton((btn) => {
+				btn.setButtonText(t('modal.save')).setCta().onClick(() => {
+					this.saveAndClose(titleInput, tagsInput as HTMLInputElement, dateInput as HTMLInputElement, bodyInput);
+				});
+			})
+			.addButton((btn) => {
+				btn.setButtonText(t('modal.cancel')).onClick(() => this.close());
+			});
+
+		// Focus title on open
+		titleInput.focus();
+	}
+
+	private saveAndClose(
+		titleEl: HTMLTextAreaElement,
+		tagsEl: HTMLInputElement,
+		dateEl: HTMLInputElement,
+		bodyEl: HTMLTextAreaElement,
+	): void {
+		const title = titleEl.value.trim();
+		if (!title) return;
+
+		// Rebuild the item title with embedded tags and date
+		const tags = tagsEl.value
+			.split(',')
+			.map((s) => s.trim().replace(/^#/, ''))
+			.filter((s) => s.length > 0);
+		const dueDate = dateEl.value || null;
+
+		let fullTitle = title;
+		if (tags.length > 0) {
+			fullTitle += ' ' + tags.map((tag) => `#${tag}`).join(' ');
+		}
+		if (dueDate) {
+			fullTitle += ` @{${dueDate}}`;
+		}
+
+		this.item.title = fullTitle;
+		this.item.tags = tags;
+		this.item.dueDate = dueDate;
+		this.item.body = bodyEl.value.trim();
+
+		this.onSave(this.item);
+		this.close();
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
+	}
 }

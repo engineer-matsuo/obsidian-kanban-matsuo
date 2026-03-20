@@ -100,4 +100,23 @@ export const ja: Record<TranslationKey, string> = {
 	'settings.input': '入力',
 	'settings.newline-key': '改行キー',
 	'settings.newline-key-desc': 'カードのテキスト内で改行を挿入するキーの組み合わせ。',
+
+	// Timezone
+	'settings.timezone': '日付のタイムゾーン',
+	'settings.timezone-desc': '日付フィルタ（今日、今週、期限切れ）で使用するタイムゾーン。',
+	'settings.timezone-local': 'ローカル時間',
+	'settings.timezone-utc': 'UTC',
+
+	// Card editor modal
+	'card-editor.title': 'カードを編集',
+	'card-editor.card-title': 'タイトル',
+	'card-editor.card-title-placeholder': 'カードのタイトル',
+	'card-editor.tags': 'タグ',
+	'card-editor.tags-desc': 'カンマ区切り（例: bug, urgent, feature）。',
+	'card-editor.tags-placeholder': 'bug, urgent',
+	'card-editor.due-date': '期日',
+	'card-editor.due-date-desc': 'YYYY-MM-DD 形式。',
+	'card-editor.clear-date': 'クリア',
+	'card-editor.body': '説明',
+	'card-editor.body-placeholder': 'カードの説明（任意）',
 };
