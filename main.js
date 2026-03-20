@@ -1040,6 +1040,43 @@ var KanbanView = class extends import_obsidian.ItemView {
         cls: "kanban-matsuo-progress-text",
         text: t("subtask.progress", { done, total })
       });
+      this.renderInlineSubTasks(bodyEl, item.subtasks, 0);
+    }
+  }
+  /**
+   * Render subtasks inline on the card (not in modal).
+   * Each subtask has a checkbox, title, and nested children with indentation.
+   */
+  renderInlineSubTasks(container, subtasks, depth) {
+    const listEl = container.createDiv({
+      cls: "kanban-matsuo-inline-subtasks"
+    });
+    if (depth > 0) listEl.addClass("kanban-matsuo-inline-subtasks-nested");
+    for (const st of subtasks) {
+      const row = listEl.createDiv({
+        cls: `kanban-matsuo-inline-subtask-row${st.checked ? " kanban-matsuo-subtask-done" : ""}`
+      });
+      const checkbox = row.createEl("input", {
+        cls: "kanban-matsuo-inline-subtask-checkbox",
+        attr: { type: "checkbox", "aria-label": st.title }
+      });
+      checkbox.checked = st.checked;
+      checkbox.addEventListener("click", (e) => e.stopPropagation());
+      checkbox.addEventListener("change", (e) => {
+        e.stopPropagation();
+        st.checked = checkbox.checked;
+        this.render();
+        this.scheduleSave();
+      });
+      const titleEl = row.createDiv({ cls: "kanban-matsuo-inline-subtask-title" });
+      if (this.file) {
+        import_obsidian.MarkdownRenderer.render(this.app, st.title, titleEl, this.file.path, this);
+      } else {
+        titleEl.setText(st.title);
+      }
+      if (st.subtasks.length > 0) {
+        this.renderInlineSubTasks(listEl, st.subtasks, depth + 1);
+      }
     }
   }
   countSubTasks(subtasks) {

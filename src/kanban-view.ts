@@ -22,7 +22,6 @@ import {
 	createItem,
 	createLane,
 	createSubTask,
-	generateId,
 } from './parser';
 import { t } from './lang';
 
@@ -506,8 +505,9 @@ export class KanbanView extends ItemView {
 			dateEl.setText(`📅 ${item.dueDate}`);
 		}
 
-		// Subtask progress bar
+		// Subtasks inline on card
 		if (item.subtasks.length > 0) {
+			// Progress bar
 			const { done, total } = this.countSubTasks(item.subtasks);
 			const progressEl = bodyEl.createDiv({ cls: 'kanban-matsuo-subtask-progress' });
 			const barOuter = progressEl.createDiv({ cls: 'kanban-matsuo-progress-bar' });
@@ -518,6 +518,53 @@ export class KanbanView extends ItemView {
 				cls: 'kanban-matsuo-progress-text',
 				text: t('subtask.progress', { done, total }),
 			});
+
+			// Inline subtask checklist
+			this.renderInlineSubTasks(bodyEl, item.subtasks, 0);
+		}
+	}
+
+	/**
+	 * Render subtasks inline on the card (not in modal).
+	 * Each subtask has a checkbox, title, and nested children with indentation.
+	 */
+	private renderInlineSubTasks(container: HTMLElement, subtasks: SubTask[], depth: number): void {
+		const listEl = container.createDiv({
+			cls: 'kanban-matsuo-inline-subtasks',
+		});
+		if (depth > 0) listEl.addClass('kanban-matsuo-inline-subtasks-nested');
+
+		for (const st of subtasks) {
+			const row = listEl.createDiv({
+				cls: `kanban-matsuo-inline-subtask-row${st.checked ? ' kanban-matsuo-subtask-done' : ''}`,
+			});
+
+			// Checkbox
+			const checkbox = row.createEl('input', {
+				cls: 'kanban-matsuo-inline-subtask-checkbox',
+				attr: { type: 'checkbox', 'aria-label': st.title },
+			});
+			(checkbox as HTMLInputElement).checked = st.checked;
+			checkbox.addEventListener('click', (e) => e.stopPropagation());
+			checkbox.addEventListener('change', (e) => {
+				e.stopPropagation();
+				st.checked = (checkbox as HTMLInputElement).checked;
+				this.render();
+				this.scheduleSave();
+			});
+
+			// Title (rendered as markdown for wikilinks etc.)
+			const titleEl = row.createDiv({ cls: 'kanban-matsuo-inline-subtask-title' });
+			if (this.file) {
+				MarkdownRenderer.render(this.app, st.title, titleEl, this.file.path, this);
+			} else {
+				titleEl.setText(st.title);
+			}
+
+			// Nested subtasks
+			if (st.subtasks.length > 0) {
+				this.renderInlineSubTasks(listEl, st.subtasks, depth + 1);
+			}
 		}
 	}
 
