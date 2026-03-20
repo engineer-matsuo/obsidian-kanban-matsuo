@@ -5,207 +5,228 @@ import {
 	createItem,
 	createBoard,
 } from './parser';
-import type { SubTask } from './types';
+import type { KanbanItem } from './types';
 
-// Helper to create a subtask
-function createSubTask(title: string, checked = false, subtasks: SubTask[] = []): SubTask {
-	return { id: 'test', title, checked, subtasks };
-}
-
-describe('SubTask data model', () => {
-	it('KanbanItem has subtasks array', () => {
+describe('KanbanItem children (subtask model)', () => {
+	it('createItem has empty children array', () => {
 		const item = createItem('Task');
-		expect(item.subtasks).toEqual([]);
+		expect(item.children).toEqual([]);
 	});
 
-	it('SubTask supports nesting', () => {
-		const nested: SubTask = createSubTask('Child', false, [
-			createSubTask('Grandchild', true),
-		]);
-		expect(nested.subtasks).toHaveLength(1);
-		expect(nested.subtasks[0].checked).toBe(true);
+	it('children are same type as parent (KanbanItem)', () => {
+		const parent = createItem('Parent');
+		const child = createItem('Child #tag @{2026-05-01}');
+		parent.children.push(child);
+		expect(parent.children[0].tags).toContain('tag');
+		expect(parent.children[0].dueDate).toBe('2026-05-01');
+		expect(parent.children[0].children).toEqual([]);
+	});
+
+	it('supports deep nesting', () => {
+		const a = createItem('A');
+		const b = createItem('B');
+		const c = createItem('C');
+		a.children.push(b);
+		b.children.push(c);
+		expect(a.children[0].children[0].title).toBe('C');
 	});
 });
 
-describe('SubTask Markdown serialization', () => {
-	it('serializes subtasks as indented checkboxes', () => {
+describe('Markdown serialization with children', () => {
+	it('serializes children as indented list items', () => {
 		const board = createBoard(['Lane']);
-		const item = createItem('Parent task');
-		item.subtasks = [
-			createSubTask('Sub 1', false),
-			createSubTask('Sub 2', true),
-		];
-		board.lanes[0].items.push(item);
+		const parent = createItem('Parent');
+		const child1 = createItem('Child 1');
+		const child2 = createItem('Child 2');
+		child2.checked = true;
+		parent.children.push(child1, child2);
+		board.lanes[0].items.push(parent);
 
 		const md = boardToMarkdown(board);
-		expect(md).toContain('    - [ ] Sub 1');
-		expect(md).toContain('    - [x] Sub 2');
+		expect(md).toContain('- [ ] Parent');
+		expect(md).toContain('    - [ ] Child 1');
+		expect(md).toContain('    - [x] Child 2');
 	});
 
-	it('serializes nested subtasks with deeper indentation', () => {
+	it('serializes nested children with deeper indentation', () => {
 		const board = createBoard(['Lane']);
-		const item = createItem('Parent');
-		item.subtasks = [
-			createSubTask('Level 1', false, [
-				createSubTask('Level 2', true),
-			]),
-		];
-		board.lanes[0].items.push(item);
+		const parent = createItem('Parent');
+		const child = createItem('Level 1');
+		const grandchild = createItem('Level 2');
+		grandchild.checked = true;
+		child.children.push(grandchild);
+		parent.children.push(child);
+		board.lanes[0].items.push(parent);
 
 		const md = boardToMarkdown(board);
 		expect(md).toContain('    - [ ] Level 1');
 		expect(md).toContain('        - [x] Level 2');
 	});
 
-	it('does not serialize empty subtasks array', () => {
+	it('does not add child lines when children is empty', () => {
 		const board = createBoard(['Lane']);
-		board.lanes[0].items.push(createItem('No subtasks'));
+		board.lanes[0].items.push(createItem('Solo'));
 
 		const md = boardToMarkdown(board);
 		const lines = md.split('\n');
-		const taskIdx = lines.findIndex((l) => l.includes('No subtasks'));
-		const nextLine = lines[taskIdx + 1] || '';
-		// Next line should not be an indented checkbox
-		expect(nextLine).not.toMatch(/^\s+- \[/);
+		const idx = lines.findIndex((l) => l.includes('Solo'));
+		const next = lines[idx + 1] || '';
+		expect(next).not.toMatch(/^\s+- /);
+	});
+
+	it('serializes children with tags and dates', () => {
+		const board = createBoard(['Lane']);
+		const parent = createItem('Parent');
+		const child = createItem('Fix bug #urgent @{2026-04-01}');
+		parent.children.push(child);
+		board.lanes[0].items.push(parent);
+
+		const md = boardToMarkdown(board);
+		expect(md).toContain('    - [ ] Fix bug #urgent @{2026-04-01}');
 	});
 });
 
-describe('SubTask Markdown parsing', () => {
-	it('parses indented checkboxes as subtasks', () => {
-		const md = `## Lane
-
-- [ ] Parent task
-    - [ ] Sub 1
-    - [x] Sub 2
-`;
-		const board = parseMarkdown(md);
-		const item = board.lanes[0].items[0];
-		expect(item.subtasks).toHaveLength(2);
-		expect(item.subtasks[0].title).toBe('Sub 1');
-		expect(item.subtasks[0].checked).toBe(false);
-		expect(item.subtasks[1].title).toBe('Sub 2');
-		expect(item.subtasks[1].checked).toBe(true);
-	});
-
-	it('parses nested subtasks', () => {
+describe('Markdown parsing with children', () => {
+	it('parses indented list items as children', () => {
 		const md = `## Lane
 
 - [ ] Parent
+    - [ ] Child 1
+    - [x] Child 2
+`;
+		const board = parseMarkdown(md);
+		const parent = board.lanes[0].items[0];
+		expect(parent.children).toHaveLength(2);
+		expect(parent.children[0].title).toBe('Child 1');
+		expect(parent.children[0].checked).toBe(false);
+		expect(parent.children[1].title).toBe('Child 2');
+		expect(parent.children[1].checked).toBe(true);
+	});
+
+	it('parses nested children', () => {
+		const md = `## Lane
+
+- [ ] Root
     - [ ] Level 1
         - [x] Level 2
 `;
 		const board = parseMarkdown(md);
-		const item = board.lanes[0].items[0];
-		expect(item.subtasks).toHaveLength(1);
-		expect(item.subtasks[0].title).toBe('Level 1');
-		expect(item.subtasks[0].subtasks).toHaveLength(1);
-		expect(item.subtasks[0].subtasks[0].title).toBe('Level 2');
-		expect(item.subtasks[0].subtasks[0].checked).toBe(true);
+		const root = board.lanes[0].items[0];
+		expect(root.children).toHaveLength(1);
+		expect(root.children[0].children).toHaveLength(1);
+		expect(root.children[0].children[0].title).toBe('Level 2');
+		expect(root.children[0].children[0].checked).toBe(true);
 	});
 
-	it('parses card with no subtasks', () => {
+	it('parses children with tags and dates', () => {
 		const md = `## Lane
 
-- [ ] Simple card
+- [ ] Parent
+    - [ ] Child #bug @{2026-03-25}
 `;
 		const board = parseMarkdown(md);
-		expect(board.lanes[0].items[0].subtasks).toEqual([]);
+		const child = board.lanes[0].items[0].children[0];
+		expect(child.tags).toContain('bug');
+		expect(child.dueDate).toBe('2026-03-25');
 	});
 
-	it('handles mixed body and subtasks', () => {
+	it('handles mixed body and children', () => {
 		const md = `## Lane
 
-- [ ] Task with body and subtasks
-    Some description text
-    - [ ] Sub 1
-    - [x] Sub 2
+- [ ] Parent
+    Description text
+    - [ ] Child 1
 `;
 		const board = parseMarkdown(md);
-		const item = board.lanes[0].items[0];
-		expect(item.body).toBe('Some description text');
-		expect(item.subtasks).toHaveLength(2);
+		const parent = board.lanes[0].items[0];
+		expect(parent.body).toBe('Description text');
+		expect(parent.children).toHaveLength(1);
+	});
+
+	it('card without children has empty array', () => {
+		const md = `## Lane
+
+- [ ] Simple
+`;
+		const board = parseMarkdown(md);
+		expect(board.lanes[0].items[0].children).toEqual([]);
 	});
 });
 
-describe('SubTask round-trip', () => {
-	it('preserves subtasks through serialize → parse', () => {
+describe('Children round-trip', () => {
+	it('preserves children through serialize → parse', () => {
 		const board = createBoard(['Lane']);
-		const item = createItem('Task');
-		item.subtasks = [
-			createSubTask('A', false),
-			createSubTask('B', true),
-			createSubTask('C', false, [
-				createSubTask('C1', true),
-			]),
-		];
-		board.lanes[0].items.push(item);
+		const parent = createItem('Parent');
+		const a = createItem('A');
+		const b = createItem('B'); b.checked = true;
+		const c = createItem('C');
+		const c1 = createItem('C1'); c1.checked = true;
+		c.children.push(c1);
+		parent.children.push(a, b, c);
+		board.lanes[0].items.push(parent);
 
 		const md = boardToMarkdown(board);
 		const parsed = parseMarkdown(md);
-		const parsedItem = parsed.lanes[0].items[0];
+		const p = parsed.lanes[0].items[0];
 
-		expect(parsedItem.subtasks).toHaveLength(3);
-		expect(parsedItem.subtasks[0].title).toBe('A');
-		expect(parsedItem.subtasks[0].checked).toBe(false);
-		expect(parsedItem.subtasks[1].title).toBe('B');
-		expect(parsedItem.subtasks[1].checked).toBe(true);
-		expect(parsedItem.subtasks[2].title).toBe('C');
-		expect(parsedItem.subtasks[2].subtasks).toHaveLength(1);
-		expect(parsedItem.subtasks[2].subtasks[0].title).toBe('C1');
-		expect(parsedItem.subtasks[2].subtasks[0].checked).toBe(true);
+		expect(p.children).toHaveLength(3);
+		expect(p.children[0].title).toBe('A');
+		expect(p.children[1].checked).toBe(true);
+		expect(p.children[2].children).toHaveLength(1);
+		expect(p.children[2].children[0].title).toBe('C1');
 	});
 
-	it('preserves subtasks in archived items', () => {
+	it('preserves children in archived items', () => {
 		const board = createBoard(['Lane']);
 		const item = createItem('Archived');
 		item.archived = true;
-		item.subtasks = [createSubTask('Sub', true)];
+		item.children.push(createItem('Sub'));
 		board.lanes[0].items.push(item);
 
 		const md = boardToMarkdown(board);
 		const parsed = parseMarkdown(md);
-		const archivedItem = parsed.lanes[0].items[0];
-		expect(archivedItem.archived).toBe(true);
-		expect(archivedItem.subtasks).toHaveLength(1);
+		const archived = parsed.lanes[0].items[0];
+		expect(archived.archived).toBe(true);
+		expect(archived.children).toHaveLength(1);
+	});
+
+	it('preserves children with body', () => {
+		const board = createBoard(['Lane']);
+		const parent = createItem('Parent');
+		parent.body = 'Some description';
+		parent.children.push(createItem('Child'));
+		board.lanes[0].items.push(parent);
+
+		const md = boardToMarkdown(board);
+		const parsed = parseMarkdown(md);
+		expect(parsed.lanes[0].items[0].body).toBe('Some description');
+		expect(parsed.lanes[0].items[0].children).toHaveLength(1);
 	});
 });
 
-describe('SubTask progress calculation', () => {
-	it('counts completed / total correctly', () => {
-		const subtasks: SubTask[] = [
-			createSubTask('A', true),
-			createSubTask('B', false),
-			createSubTask('C', true),
-		];
-		const completed = subtasks.filter((s) => s.checked).length;
-		const total = subtasks.length;
-		expect(completed).toBe(2);
-		expect(total).toBe(3);
-	});
-
-	it('counts nested subtasks recursively', () => {
-		const subtasks: SubTask[] = [
-			createSubTask('A', true, [
-				createSubTask('A1', true),
-				createSubTask('A2', false),
-			]),
-			createSubTask('B', false),
-		];
-
-		function countAll(subs: SubTask[]): { done: number; total: number } {
+describe('Progress counting', () => {
+	it('counts done/total recursively', () => {
+		function count(items: KanbanItem[]): { done: number; total: number } {
 			let done = 0, total = 0;
-			for (const s of subs) {
+			for (const c of items) {
 				total++;
-				if (s.checked) done++;
-				const child = countAll(s.subtasks);
-				done += child.done;
-				total += child.total;
+				if (c.checked) done++;
+				const sub = count(c.children);
+				done += sub.done;
+				total += sub.total;
 			}
 			return { done, total };
 		}
 
-		const { done, total } = countAll(subtasks);
-		expect(done).toBe(2); // A, A1
-		expect(total).toBe(4); // A, A1, A2, B
+		const parent = createItem('P');
+		const a = createItem('A'); a.checked = true;
+		const b = createItem('B');
+		const b1 = createItem('B1'); b1.checked = true;
+		b.children.push(b1);
+		parent.children.push(a, b);
+
+		const { done, total } = count(parent.children);
+		expect(done).toBe(2);
+		expect(total).toBe(3);
 	});
 });

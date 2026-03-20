@@ -1,4 +1,4 @@
-import { KanbanBoard, KanbanItem, KanbanLane, SubTask, DEFAULT_BOARD_SETTINGS } from './types';
+import { KanbanBoard, KanbanItem, KanbanLane, DEFAULT_BOARD_SETTINGS } from './types';
 
 /**
  * Generate a unique ID for lanes and items.
@@ -19,19 +19,7 @@ export function createItem(title: string): KanbanItem {
 		dueDate: extractDate(title),
 		checked: false,
 		archived: false,
-		subtasks: [],
-	};
-}
-
-/**
- * Create a new SubTask.
- */
-export function createSubTask(title: string): SubTask {
-	return {
-		id: generateId(),
-		title: title.trim(),
-		checked: false,
-		subtasks: [],
+		children: [],
 	};
 }
 
@@ -82,24 +70,12 @@ export function extractDate(text: string): string | null {
 /**
  * Parse Markdown content into a KanbanBoard.
  *
- * Format:
- * ---
- * kanban-plugin: kanban-matsuo
- * lane-width: 272
- * ---
+ * Cards at the top level are `- [ ] title`.
+ * Child cards (subtasks) are indented by 4 spaces per level:
+ *   `    - [ ] child`
+ *   `        - [ ] grandchild`
  *
- * ## Lane Title
- *
- * - [ ] Card title #tag @{2024-01-15}
- *     Body line 1
- *     Body line 2
- * - [x] Completed card
- *
- * ## %% Archive %%
- *
- * ### Lane Title
- *
- * - [x] Archived card
+ * Body text is indented but NOT a list item.
  */
 export function parseMarkdown(content: string): KanbanBoard {
 	const board: KanbanBoard = {
@@ -109,9 +85,15 @@ export function parseMarkdown(content: string): KanbanBoard {
 
 	const lines = content.split('\n');
 	let currentLane: KanbanLane | null = null;
-	let currentItem: KanbanItem | null = null;
 	let inFrontmatter = false;
 	let inArchive = false;
+
+	// Stack to track nesting: each entry is [indent, KanbanItem]
+	let itemStack: [number, KanbanItem][] = [];
+
+	function getCurrentItem(): KanbanItem | null {
+		return itemStack.length > 0 ? itemStack[itemStack.length - 1][1] : null;
+	}
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
@@ -121,7 +103,6 @@ export function parseMarkdown(content: string): KanbanBoard {
 			inFrontmatter = true;
 			continue;
 		}
-
 		if (inFrontmatter) {
 			if (line.trim() === '---') {
 				inFrontmatter = false;
@@ -135,12 +116,11 @@ export function parseMarkdown(content: string): KanbanBoard {
 		if (line.match(/^##\s+%%\s*Archive\s*%%/i)) {
 			inArchive = true;
 			currentLane = null;
-			currentItem = null;
+			itemStack = [];
 			continue;
 		}
 
 		if (inArchive) {
-			// ### Lane Title inside archive
 			const archiveLaneMatch = line.match(/^###\s+(.+)$/);
 			if (archiveLaneMatch) {
 				const laneTitle = archiveLaneMatch[1].trim();
@@ -149,36 +129,23 @@ export function parseMarkdown(content: string): KanbanBoard {
 					currentLane = createLane(laneTitle);
 					board.lanes.push(currentLane);
 				}
-				currentItem = null;
+				itemStack = [];
 				continue;
 			}
 
-			const itemMatch = line.match(/^[-*]\s+(.+)$/);
-			if (itemMatch && currentLane) {
-				const item = parseItemText(itemMatch[1]);
-				item.archived = true;
-				currentLane.items.push(item);
-				currentItem = item;
+			// Items inside archive (same parsing as active, but mark archived)
+			const parsed = parseCardLine(line, itemStack, currentLane, true);
+			if (parsed) {
+				itemStack = parsed;
 				continue;
 			}
 
-			// Indented lines for archived items: subtasks or body
-			if (currentItem && line.match(/^\s{4}/) && line.trim().length > 0) {
-				const subtaskMatch = line.match(/^(\s+)[-*]\s+\[([x ])\]\s*(.+)$/i);
-				if (subtaskMatch) {
-					const indent = subtaskMatch[1].length;
-					const checked = subtaskMatch[2].toLowerCase() === 'x';
-					const st = createSubTask(subtaskMatch[3]);
-					st.checked = checked;
-					const level = Math.floor(indent / 4) - 1;
-					insertSubTask(currentItem.subtasks, st, level);
-				} else {
-					if (currentItem.body) currentItem.body += '\n';
-					currentItem.body += line.trim();
-				}
-				continue;
+			// Body lines
+			const cur = getCurrentItem();
+			if (cur && line.match(/^\s{4}/) && line.trim().length > 0 && !line.match(/^\s*[-*]\s/)) {
+				if (cur.body) cur.body += '\n';
+				cur.body += line.trim();
 			}
-
 			continue;
 		}
 
@@ -187,42 +154,28 @@ export function parseMarkdown(content: string): KanbanBoard {
 		if (headingMatch) {
 			currentLane = createLane(headingMatch[1]);
 			board.lanes.push(currentLane);
-			currentItem = null;
+			itemStack = [];
 			continue;
 		}
 
-		// List item (card)
-		const itemMatch = line.match(/^[-*]\s+(.+)$/);
-		if (itemMatch && currentLane) {
-			const rawText = itemMatch[1];
-			const item = parseItemText(rawText);
-			currentLane.items.push(item);
-			currentItem = item;
+		// Card lines (top-level or indented)
+		const parsed = parseCardLine(line, itemStack, currentLane, false);
+		if (parsed) {
+			itemStack = parsed;
 			continue;
 		}
 
-		// Indented lines: subtask checkboxes or body text
-		if (currentItem && line.match(/^\s{4}/) && line.trim().length > 0) {
-			const subtaskMatch = line.match(/^(\s+)[-*]\s+\[([x ])\]\s*(.+)$/i);
-			if (subtaskMatch) {
-				const indent = subtaskMatch[1].length;
-				const checked = subtaskMatch[2].toLowerCase() === 'x';
-				const st = createSubTask(subtaskMatch[3]);
-				st.checked = checked;
-				// Determine nesting level (4 spaces = level 0 subtask, 8 = level 1, etc.)
-				const level = Math.floor(indent / 4) - 1;
-				insertSubTask(currentItem.subtasks, st, level);
-			} else {
-				// Plain body line
-				if (currentItem.body) currentItem.body += '\n';
-				currentItem.body += line.trim();
-			}
+		// Body lines (indented non-list text)
+		const cur = getCurrentItem();
+		if (cur && line.match(/^\s{4}|\t/) && line.trim().length > 0 && !line.match(/^\s*[-*]\s/)) {
+			if (cur.body) cur.body += '\n';
+			cur.body += line.trim();
 			continue;
 		}
 
-		// Empty line resets current item (body collection)
+		// Empty line
 		if (line.trim() === '') {
-			currentItem = null;
+			itemStack = [];
 		}
 	}
 
@@ -230,30 +183,46 @@ export function parseMarkdown(content: string): KanbanBoard {
 }
 
 /**
- * Insert a subtask at the correct nesting level.
- * level 0 = direct child of item, level 1 = child of last level-0 subtask, etc.
+ * Try to parse a line as a card (list item). Handles indentation for nesting.
+ * Returns updated stack, or null if the line is not a card.
  */
-function insertSubTask(subtasks: SubTask[], st: SubTask, level: number): void {
-	if (level <= 0 || subtasks.length === 0) {
-		subtasks.push(st);
-		return;
-	}
-	const parent = subtasks[subtasks.length - 1];
-	insertSubTask(parent.subtasks, st, level - 1);
-}
+function parseCardLine(
+	line: string,
+	stack: [number, KanbanItem][],
+	currentLane: KanbanLane | null,
+	archived: boolean,
+): [number, KanbanItem][] | null {
+	const match = line.match(/^(\s*)([-*])\s+(.+)$/);
+	if (!match || !currentLane) return null;
 
-/**
- * Serialize subtasks as indented checkbox lines.
- */
-function serializeSubTasks(subtasks: SubTask[], lines: string[], depth: number): void {
-	const indent = '    '.repeat(depth + 1);
-	for (const st of subtasks) {
-		const check = st.checked ? '[x]' : '[ ]';
-		lines.push(`${indent}- ${check} ${st.title}`);
-		if (st.subtasks.length > 0) {
-			serializeSubTasks(st.subtasks, lines, depth + 1);
-		}
+	const indent = match[1].length;
+	const rawText = match[3];
+	const item = parseItemText(rawText);
+	if (archived) item.archived = true;
+
+	if (indent === 0) {
+		// Top-level card
+		currentLane.items.push(item);
+		return [[0, item]];
 	}
+
+	// Child card: find parent by indentation
+	// Pop stack until we find an item at a lower indent level
+	const newStack = [...stack];
+	while (newStack.length > 0 && newStack[newStack.length - 1][0] >= indent) {
+		newStack.pop();
+	}
+
+	if (newStack.length > 0) {
+		const parent = newStack[newStack.length - 1][1];
+		parent.children.push(item);
+	} else {
+		// Fallback: treat as top-level
+		currentLane.items.push(item);
+	}
+
+	newStack.push([indent, item]);
+	return newStack;
 }
 
 /**
@@ -287,7 +256,6 @@ function parseItemText(rawText: string): KanbanItem {
 	let checked = false;
 	let text = rawText;
 
-	// Handle checkbox
 	const checkboxMatch = text.match(/^\[([x ])\]\s*/i);
 	if (checkboxMatch) {
 		checked = checkboxMatch[1].toLowerCase() === 'x';
@@ -296,13 +264,11 @@ function parseItemText(rawText: string): KanbanItem {
 
 	const item = createItem(text);
 	item.checked = checked;
-
 	return item;
 }
 
 /**
  * Convert a KanbanBoard back to Markdown string.
- * Active and archived items are both persisted.
  */
 export function boardToMarkdown(board: KanbanBoard): string {
 	const lines: string[] = [];
@@ -324,31 +290,13 @@ export function boardToMarkdown(board: KanbanBoard): string {
 
 		for (const item of lane.items) {
 			if (item.archived) continue;
-
-			let line = '- ';
-			if (board.settings.showCheckboxes) {
-				line += item.checked ? '[x] ' : '[ ] ';
-			}
-			line += item.title;
-			lines.push(line);
-
-			// Body as indented lines
-			if (item.body) {
-				for (const bodyLine of item.body.split('\n')) {
-					lines.push(`    ${bodyLine}`);
-				}
-			}
-
-			// Subtasks
-			if (item.subtasks.length > 0) {
-				serializeSubTasks(item.subtasks, lines, 0);
-			}
+			serializeItem(item, lines, 0, board.settings.showCheckboxes);
 		}
 
 		lines.push('');
 	}
 
-	// Archive section (only if there are archived items)
+	// Archive section
 	const archivedByLane = new Map<string, KanbanItem[]>();
 	for (const lane of board.lanes) {
 		const archived = lane.items.filter((i) => i.archived);
@@ -365,24 +313,36 @@ export function boardToMarkdown(board: KanbanBoard): string {
 			lines.push(`### ${laneTitle}`);
 			lines.push('');
 			for (const item of items) {
-				let line = '- ';
-				if (board.settings.showCheckboxes) {
-					line += item.checked ? '[x] ' : '[ ] ';
-				}
-				line += item.title;
-				lines.push(line);
-				if (item.body) {
-					for (const bodyLine of item.body.split('\n')) {
-						lines.push(`    ${bodyLine}`);
-					}
-				}
-				if (item.subtasks.length > 0) {
-					serializeSubTasks(item.subtasks, lines, 0);
-				}
+				serializeItem(item, lines, 0, board.settings.showCheckboxes);
 			}
 			lines.push('');
 		}
 	}
 
 	return lines.join('\n');
+}
+
+/**
+ * Serialize a single item and its children recursively.
+ */
+function serializeItem(item: KanbanItem, lines: string[], depth: number, showCheckboxes: boolean): void {
+	const indent = '    '.repeat(depth);
+	let line = `${indent}- `;
+	if (showCheckboxes) {
+		line += item.checked ? '[x] ' : '[ ] ';
+	}
+	line += item.title;
+	lines.push(line);
+
+	// Body
+	if (item.body) {
+		for (const bodyLine of item.body.split('\n')) {
+			lines.push(`${indent}    ${bodyLine}`);
+		}
+	}
+
+	// Children (same KanbanItem, deeper indent)
+	for (const child of item.children) {
+		serializeItem(child, lines, depth + 1, showCheckboxes);
+	}
 }

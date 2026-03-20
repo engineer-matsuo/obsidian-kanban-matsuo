@@ -65,15 +65,7 @@ function createItem(title) {
     dueDate: extractDate(title),
     checked: false,
     archived: false,
-    subtasks: []
-  };
-}
-function createSubTask(title) {
-  return {
-    id: generateId(),
-    title: title.trim(),
-    checked: false,
-    subtasks: []
+    children: []
   };
 }
 function createLane(title) {
@@ -109,9 +101,12 @@ function parseMarkdown(content) {
   };
   const lines = content.split("\n");
   let currentLane = null;
-  let currentItem = null;
   let inFrontmatter = false;
   let inArchive = false;
+  let itemStack = [];
+  function getCurrentItem() {
+    return itemStack.length > 0 ? itemStack[itemStack.length - 1][1] : null;
+  }
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (i === 0 && line.trim() === "---") {
@@ -129,7 +124,7 @@ function parseMarkdown(content) {
     if (line.match(/^##\s+%%\s*Archive\s*%%/i)) {
       inArchive = true;
       currentLane = null;
-      currentItem = null;
+      itemStack = [];
       continue;
     }
     if (inArchive) {
@@ -141,31 +136,18 @@ function parseMarkdown(content) {
           currentLane = createLane(laneTitle);
           board.lanes.push(currentLane);
         }
-        currentItem = null;
+        itemStack = [];
         continue;
       }
-      const itemMatch2 = line.match(/^[-*]\s+(.+)$/);
-      if (itemMatch2 && currentLane) {
-        const item = parseItemText(itemMatch2[1]);
-        item.archived = true;
-        currentLane.items.push(item);
-        currentItem = item;
+      const parsed2 = parseCardLine(line, itemStack, currentLane, true);
+      if (parsed2) {
+        itemStack = parsed2;
         continue;
       }
-      if (currentItem && line.match(/^\s{4}/) && line.trim().length > 0) {
-        const subtaskMatch = line.match(/^(\s+)[-*]\s+\[([x ])\]\s*(.+)$/i);
-        if (subtaskMatch) {
-          const indent = subtaskMatch[1].length;
-          const checked = subtaskMatch[2].toLowerCase() === "x";
-          const st = createSubTask(subtaskMatch[3]);
-          st.checked = checked;
-          const level = Math.floor(indent / 4) - 1;
-          insertSubTask(currentItem.subtasks, st, level);
-        } else {
-          if (currentItem.body) currentItem.body += "\n";
-          currentItem.body += line.trim();
-        }
-        continue;
+      const cur2 = getCurrentItem();
+      if (cur2 && line.match(/^\s{4}/) && line.trim().length > 0 && !line.match(/^\s*[-*]\s/)) {
+        if (cur2.body) cur2.body += "\n";
+        cur2.body += line.trim();
       }
       continue;
     }
@@ -173,55 +155,49 @@ function parseMarkdown(content) {
     if (headingMatch) {
       currentLane = createLane(headingMatch[1]);
       board.lanes.push(currentLane);
-      currentItem = null;
+      itemStack = [];
       continue;
     }
-    const itemMatch = line.match(/^[-*]\s+(.+)$/);
-    if (itemMatch && currentLane) {
-      const rawText = itemMatch[1];
-      const item = parseItemText(rawText);
-      currentLane.items.push(item);
-      currentItem = item;
+    const parsed = parseCardLine(line, itemStack, currentLane, false);
+    if (parsed) {
+      itemStack = parsed;
       continue;
     }
-    if (currentItem && line.match(/^\s{4}/) && line.trim().length > 0) {
-      const subtaskMatch = line.match(/^(\s+)[-*]\s+\[([x ])\]\s*(.+)$/i);
-      if (subtaskMatch) {
-        const indent = subtaskMatch[1].length;
-        const checked = subtaskMatch[2].toLowerCase() === "x";
-        const st = createSubTask(subtaskMatch[3]);
-        st.checked = checked;
-        const level = Math.floor(indent / 4) - 1;
-        insertSubTask(currentItem.subtasks, st, level);
-      } else {
-        if (currentItem.body) currentItem.body += "\n";
-        currentItem.body += line.trim();
-      }
+    const cur = getCurrentItem();
+    if (cur && line.match(/^\s{4}|\t/) && line.trim().length > 0 && !line.match(/^\s*[-*]\s/)) {
+      if (cur.body) cur.body += "\n";
+      cur.body += line.trim();
       continue;
     }
     if (line.trim() === "") {
-      currentItem = null;
+      itemStack = [];
     }
   }
   return board;
 }
-function insertSubTask(subtasks, st, level) {
-  if (level <= 0 || subtasks.length === 0) {
-    subtasks.push(st);
-    return;
+function parseCardLine(line, stack, currentLane, archived) {
+  const match = line.match(/^(\s*)([-*])\s+(.+)$/);
+  if (!match || !currentLane) return null;
+  const indent = match[1].length;
+  const rawText = match[3];
+  const item = parseItemText(rawText);
+  if (archived) item.archived = true;
+  if (indent === 0) {
+    currentLane.items.push(item);
+    return [[0, item]];
   }
-  const parent = subtasks[subtasks.length - 1];
-  insertSubTask(parent.subtasks, st, level - 1);
-}
-function serializeSubTasks(subtasks, lines, depth) {
-  const indent = "    ".repeat(depth + 1);
-  for (const st of subtasks) {
-    const check = st.checked ? "[x]" : "[ ]";
-    lines.push(`${indent}- ${check} ${st.title}`);
-    if (st.subtasks.length > 0) {
-      serializeSubTasks(st.subtasks, lines, depth + 1);
-    }
+  const newStack = [...stack];
+  while (newStack.length > 0 && newStack[newStack.length - 1][0] >= indent) {
+    newStack.pop();
   }
+  if (newStack.length > 0) {
+    const parent = newStack[newStack.length - 1][1];
+    parent.children.push(item);
+  } else {
+    currentLane.items.push(item);
+  }
+  newStack.push([indent, item]);
+  return newStack;
 }
 function parseFrontmatterLine(line, settings) {
   const match = line.match(/^(\w[\w-]*):\s*(.+)$/);
@@ -269,20 +245,7 @@ function boardToMarkdown(board) {
     lines.push("");
     for (const item of lane.items) {
       if (item.archived) continue;
-      let line = "- ";
-      if (board.settings.showCheckboxes) {
-        line += item.checked ? "[x] " : "[ ] ";
-      }
-      line += item.title;
-      lines.push(line);
-      if (item.body) {
-        for (const bodyLine of item.body.split("\n")) {
-          lines.push(`    ${bodyLine}`);
-        }
-      }
-      if (item.subtasks.length > 0) {
-        serializeSubTasks(item.subtasks, lines, 0);
-      }
+      serializeItem(item, lines, 0, board.settings.showCheckboxes);
     }
     lines.push("");
   }
@@ -300,25 +263,29 @@ function boardToMarkdown(board) {
       lines.push(`### ${laneTitle}`);
       lines.push("");
       for (const item of items) {
-        let line = "- ";
-        if (board.settings.showCheckboxes) {
-          line += item.checked ? "[x] " : "[ ] ";
-        }
-        line += item.title;
-        lines.push(line);
-        if (item.body) {
-          for (const bodyLine of item.body.split("\n")) {
-            lines.push(`    ${bodyLine}`);
-          }
-        }
-        if (item.subtasks.length > 0) {
-          serializeSubTasks(item.subtasks, lines, 0);
-        }
+        serializeItem(item, lines, 0, board.settings.showCheckboxes);
       }
       lines.push("");
     }
   }
   return lines.join("\n");
+}
+function serializeItem(item, lines, depth, showCheckboxes) {
+  const indent = "    ".repeat(depth);
+  let line = `${indent}- `;
+  if (showCheckboxes) {
+    line += item.checked ? "[x] " : "[ ] ";
+  }
+  line += item.title;
+  lines.push(line);
+  if (item.body) {
+    for (const bodyLine of item.body.split("\n")) {
+      lines.push(`${indent}    ${bodyLine}`);
+    }
+  }
+  for (const child of item.children) {
+    serializeItem(child, lines, depth + 1, showCheckboxes);
+  }
 }
 
 // src/lang/en.ts
@@ -1029,8 +996,8 @@ var KanbanView = class extends import_obsidian.ItemView {
       else if (item.dueDate === today) dateEl.addClass("kanban-matsuo-date-today");
       dateEl.setText(`\u{1F4C5} ${item.dueDate}`);
     }
-    if (item.subtasks.length > 0) {
-      const { done, total } = this.countSubTasks(item.subtasks);
+    if (item.children.length > 0) {
+      const { done, total } = this.countChildren(item.children);
       const progressEl = bodyEl.createDiv({ cls: "kanban-matsuo-subtask-progress" });
       const barOuter = progressEl.createDiv({ cls: "kanban-matsuo-progress-bar" });
       const barInner = barOuter.createDiv({ cls: "kanban-matsuo-progress-fill" });
@@ -1040,53 +1007,74 @@ var KanbanView = class extends import_obsidian.ItemView {
         cls: "kanban-matsuo-progress-text",
         text: t("subtask.progress", { done, total })
       });
-      this.renderInlineSubTasks(bodyEl, item.subtasks, 0);
+      this.renderChildCards(bodyEl, item.children, 0);
     }
   }
   /**
-   * Render subtasks inline on the card (not in modal).
-   * Each subtask has a checkbox, title, and nested children with indentation.
+   * Render child cards inline on the parent card.
+   * Each child is a mini-card with checkbox, title, tags, date — same as a main card.
    */
-  renderInlineSubTasks(container, subtasks, depth) {
-    const listEl = container.createDiv({
-      cls: "kanban-matsuo-inline-subtasks"
-    });
+  renderChildCards(container, children, depth) {
+    var _a, _b, _c;
+    const listEl = container.createDiv({ cls: "kanban-matsuo-inline-subtasks" });
     if (depth > 0) listEl.addClass("kanban-matsuo-inline-subtasks-nested");
-    for (const st of subtasks) {
+    for (const child of children) {
       const row = listEl.createDiv({
-        cls: `kanban-matsuo-inline-subtask-row${st.checked ? " kanban-matsuo-subtask-done" : ""}`
+        cls: `kanban-matsuo-inline-subtask-row${child.checked ? " kanban-matsuo-subtask-done" : ""}`
       });
-      const checkbox = row.createEl("input", {
-        cls: "kanban-matsuo-inline-subtask-checkbox",
-        attr: { type: "checkbox", "aria-label": st.title }
-      });
-      checkbox.checked = st.checked;
-      checkbox.addEventListener("click", (e) => e.stopPropagation());
-      checkbox.addEventListener("change", (e) => {
-        e.stopPropagation();
-        st.checked = checkbox.checked;
-        this.render();
-        this.scheduleSave();
-      });
-      const titleEl = row.createDiv({ cls: "kanban-matsuo-inline-subtask-title" });
-      if (this.file) {
-        import_obsidian.MarkdownRenderer.render(this.app, st.title, titleEl, this.file.path, this);
-      } else {
-        titleEl.setText(st.title);
+      if ((_a = this.board) == null ? void 0 : _a.settings.showCheckboxes) {
+        const checkbox = row.createEl("input", {
+          cls: "kanban-matsuo-inline-subtask-checkbox",
+          attr: { type: "checkbox", "aria-label": child.title }
+        });
+        checkbox.checked = child.checked;
+        checkbox.addEventListener("click", (e) => e.stopPropagation());
+        checkbox.addEventListener("change", (e) => {
+          e.stopPropagation();
+          child.checked = checkbox.checked;
+          this.render();
+          this.scheduleSave();
+        });
       }
-      if (st.subtasks.length > 0) {
-        this.renderInlineSubTasks(listEl, st.subtasks, depth + 1);
+      const contentEl = row.createDiv({ cls: "kanban-matsuo-inline-subtask-content" });
+      const titleEl = contentEl.createDiv({ cls: "kanban-matsuo-inline-subtask-title" });
+      const displayTitle = child.title.replace(/#[^\s#]+/g, "").replace(/@\{\d{4}-\d{2}-\d{2}\}/g, "").trim() || child.title;
+      if (this.file) {
+        import_obsidian.MarkdownRenderer.render(this.app, displayTitle, titleEl, this.file.path, this);
+      } else {
+        titleEl.setText(displayTitle);
+      }
+      if (((_b = this.board) == null ? void 0 : _b.settings.showTags) && child.tags.length > 0) {
+        const tagsEl = contentEl.createDiv({ cls: "kanban-matsuo-card-tags" });
+        for (const tag of child.tags) {
+          tagsEl.createSpan({ cls: "kanban-matsuo-tag", text: `#${tag}` });
+        }
+      }
+      if (((_c = this.board) == null ? void 0 : _c.settings.showDates) && child.dueDate) {
+        const dateEl = contentEl.createDiv({ cls: "kanban-matsuo-card-date" });
+        const today = this.getToday();
+        if (child.dueDate < today) dateEl.addClass("kanban-matsuo-date-overdue");
+        else if (child.dueDate === today) dateEl.addClass("kanban-matsuo-date-today");
+        dateEl.setText(`\u{1F4C5} ${child.dueDate}`);
+      }
+      row.addEventListener("click", (e) => {
+        if (e.target.closest("input, a")) return;
+        e.stopPropagation();
+        this.openCardEditor(child, null);
+      });
+      if (child.children.length > 0) {
+        this.renderChildCards(listEl, child.children, depth + 1);
       }
     }
   }
-  countSubTasks(subtasks) {
+  countChildren(children) {
     let done = 0, total = 0;
-    for (const s of subtasks) {
+    for (const c of children) {
       total++;
-      if (s.checked) done++;
-      const child = this.countSubTasks(s.subtasks);
-      done += child.done;
-      total += child.total;
+      if (c.checked) done++;
+      const sub = this.countChildren(c.children);
+      done += sub.done;
+      total += sub.total;
     }
     return { done, total };
   }
@@ -1538,7 +1526,7 @@ var CardEditorModal = class extends import_obsidian.Modal {
     const section = container.createDiv({ cls: "kanban-matsuo-subtask-editor" });
     const header = section.createDiv({ cls: "kanban-matsuo-subtask-header" });
     header.createEl("h4", { text: t("subtask.add"), cls: "kanban-matsuo-subtask-heading" });
-    if (this.item.subtasks.length > 0) {
+    if (this.item.children.length > 0) {
       const toggleBtn = header.createEl("button", {
         cls: "kanban-matsuo-subtask-toggle clickable-icon",
         text: this.hideDone ? t("subtask.show-done") : t("subtask.collapse-done")
@@ -1548,7 +1536,7 @@ var CardEditorModal = class extends import_obsidian.Modal {
         this.rerenderSubTasks(section);
       });
     }
-    this.renderSubTaskList(section, this.item.subtasks, 0);
+    this.renderSubTaskList(section, this.item.children, 0);
     const addRow = section.createDiv({ cls: "kanban-matsuo-subtask-add" });
     const addInput = addRow.createEl("input", {
       cls: "kanban-matsuo-editor-input",
@@ -1558,8 +1546,8 @@ var CardEditorModal = class extends import_obsidian.Modal {
       if (e.key === "Enter" && !e.isComposing) {
         const val = addInput.value.trim();
         if (val) {
-          const st = createSubTask(val);
-          this.item.subtasks.push(st);
+          const child = createItem(val);
+          this.item.children.push(child);
           addInput.value = "";
           this.rerenderSubTasks(section);
         }
@@ -1571,31 +1559,31 @@ var CardEditorModal = class extends import_obsidian.Modal {
     this.renderSubTaskEditor(section.parentElement);
     section.remove();
   }
-  renderSubTaskList(container, subtasks, depth) {
+  renderSubTaskList(container, items, depth) {
     const list = container.createDiv({ cls: "kanban-matsuo-subtask-list" });
     if (depth > 0) list.style.setProperty("--subtask-depth", `${depth}`);
-    for (let i = 0; i < subtasks.length; i++) {
-      const st = subtasks[i];
-      if (this.hideDone && st.checked) continue;
+    for (let i = 0; i < items.length; i++) {
+      const child = items[i];
+      if (this.hideDone && child.checked) continue;
       const row = list.createDiv({ cls: "kanban-matsuo-subtask-row" });
       const checkbox = row.createEl("input", {
-        attr: { type: "checkbox", "aria-label": st.title },
+        attr: { type: "checkbox", "aria-label": child.title },
         cls: "kanban-matsuo-subtask-checkbox"
       });
-      checkbox.checked = st.checked;
+      checkbox.checked = child.checked;
       checkbox.addEventListener("change", () => {
-        st.checked = checkbox.checked;
-        row.toggleClass("kanban-matsuo-subtask-done", st.checked);
+        child.checked = checkbox.checked;
+        row.toggleClass("kanban-matsuo-subtask-done", child.checked);
       });
       const titleEl = row.createSpan({
-        cls: `kanban-matsuo-subtask-title${st.checked ? " kanban-matsuo-subtask-done" : ""}`,
-        text: st.title
+        cls: `kanban-matsuo-subtask-title${child.checked ? " kanban-matsuo-subtask-done" : ""}`,
+        text: child.title
       });
       titleEl.contentEditable = "true";
       titleEl.addEventListener("blur", () => {
         var _a;
         const val = (_a = titleEl.textContent) == null ? void 0 : _a.trim();
-        if (val) st.title = val;
+        if (val) child.title = val;
       });
       const deleteBtn = row.createEl("button", {
         cls: "kanban-matsuo-subtask-delete clickable-icon",
@@ -1603,12 +1591,12 @@ var CardEditorModal = class extends import_obsidian.Modal {
       });
       (0, import_obsidian.setIcon)(deleteBtn, "x");
       deleteBtn.addEventListener("click", () => {
-        subtasks.splice(i, 1);
+        items.splice(i, 1);
         row.remove();
       });
-      if (st.checked) row.addClass("kanban-matsuo-subtask-done");
-      if (st.subtasks.length > 0) {
-        this.renderSubTaskList(row, st.subtasks, depth + 1);
+      if (child.checked) row.addClass("kanban-matsuo-subtask-done");
+      if (child.children.length > 0) {
+        this.renderSubTaskList(row, child.children, depth + 1);
       }
     }
   }
