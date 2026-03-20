@@ -406,17 +406,35 @@ export class KanbanView extends ItemView {
 			});
 
 			for (const item of lane.items) {
-				if (this.isItemVisible(item)) this.renderCard(listEl, item, lane);
+				if (this.isItemVisible(item)) this.renderCardTree(listEl, item, lane, 0);
 			}
 			this.renderAddCardInput(laneEl, lane);
 		}
 	}
 
-	private renderCard(container: HTMLElement, item: KanbanItem, lane: KanbanLane): void {
+	/**
+	 * Render a card and its children recursively, each as a separate card in the list.
+	 * Children are indented by depth level.
+	 */
+	private renderCardTree(container: HTMLElement, item: KanbanItem, lane: KanbanLane, depth: number): void {
+		this.renderCard(container, item, lane, depth);
+		for (const child of item.children) {
+			if (this.isItemVisible(child)) {
+				this.renderCardTree(container, child, lane, depth + 1);
+			}
+		}
+	}
+
+	private renderCard(container: HTMLElement, item: KanbanItem, lane: KanbanLane, depth = 0): void {
 		const cardEl = container.createDiv({
 			cls: 'kanban-matsuo-card',
 			attr: { 'data-item-id': item.id, draggable: 'true', role: 'listitem', tabindex: '0', 'aria-label': item.title },
 		});
+
+		if (depth > 0) {
+			cardEl.addClass('kanban-matsuo-card-child');
+			cardEl.style.setProperty('--card-depth', `${depth}`);
+		}
 
 		if (item.checked) cardEl.addClass('kanban-matsuo-card-checked');
 
@@ -503,7 +521,7 @@ export class KanbanView extends ItemView {
 			dateEl.setText(`📅 ${item.dueDate}`);
 		}
 
-		// Children (sub-cards) inline
+		// Children progress bar (children are rendered as separate cards below)
 		if (item.children.length > 0) {
 			const { done, total } = this.countChildren(item.children);
 			const progressEl = bodyEl.createDiv({ cls: 'kanban-matsuo-subtask-progress' });
@@ -515,80 +533,6 @@ export class KanbanView extends ItemView {
 				cls: 'kanban-matsuo-progress-text',
 				text: t('subtask.progress', { done, total }),
 			});
-
-			this.renderChildCards(bodyEl, item.children, 0);
-		}
-	}
-
-	/**
-	 * Render child cards inline on the parent card.
-	 * Each child is a mini-card with checkbox, title, tags, date — same as a main card.
-	 */
-	private renderChildCards(container: HTMLElement, children: KanbanItem[], depth: number): void {
-		const listEl = container.createDiv({ cls: 'kanban-matsuo-inline-subtasks' });
-		if (depth > 0) listEl.addClass('kanban-matsuo-inline-subtasks-nested');
-
-		for (const child of children) {
-			const row = listEl.createDiv({
-				cls: `kanban-matsuo-inline-subtask-row${child.checked ? ' kanban-matsuo-subtask-done' : ''}`,
-			});
-
-			// Checkbox
-			if (this.board?.settings.showCheckboxes) {
-				const checkbox = row.createEl('input', {
-					cls: 'kanban-matsuo-inline-subtask-checkbox',
-					attr: { type: 'checkbox', 'aria-label': child.title },
-				});
-				(checkbox as HTMLInputElement).checked = child.checked;
-				checkbox.addEventListener('click', (e) => e.stopPropagation());
-				checkbox.addEventListener('change', (e) => {
-					e.stopPropagation();
-					child.checked = (checkbox as HTMLInputElement).checked;
-					this.render();
-					this.scheduleSave();
-				});
-			}
-
-			// Content area
-			const contentEl = row.createDiv({ cls: 'kanban-matsuo-inline-subtask-content' });
-
-			// Title (Markdown rendered)
-			const titleEl = contentEl.createDiv({ cls: 'kanban-matsuo-inline-subtask-title' });
-			const displayTitle = child.title.replace(/#[^\s#]+/g, '').replace(/@\{\d{4}-\d{2}-\d{2}\}/g, '').trim() || child.title;
-			if (this.file) {
-				MarkdownRenderer.render(this.app, displayTitle, titleEl, this.file.path, this);
-			} else {
-				titleEl.setText(displayTitle);
-			}
-
-			// Tags
-			if (this.board?.settings.showTags && child.tags.length > 0) {
-				const tagsEl = contentEl.createDiv({ cls: 'kanban-matsuo-card-tags' });
-				for (const tag of child.tags) {
-					tagsEl.createSpan({ cls: 'kanban-matsuo-tag', text: `#${tag}` });
-				}
-			}
-
-			// Due date
-			if (this.board?.settings.showDates && child.dueDate) {
-				const dateEl = contentEl.createDiv({ cls: 'kanban-matsuo-card-date' });
-				const today = this.getToday();
-				if (child.dueDate < today) dateEl.addClass('kanban-matsuo-date-overdue');
-				else if (child.dueDate === today) dateEl.addClass('kanban-matsuo-date-today');
-				dateEl.setText(`📅 ${child.dueDate}`);
-			}
-
-			// Click to open child editor
-			row.addEventListener('click', (e) => {
-				if ((e.target as HTMLElement).closest('input, a')) return;
-				e.stopPropagation();
-				this.openCardEditor(child, null as unknown as KanbanLane);
-			});
-
-			// Nested children (recursive)
-			if (child.children.length > 0) {
-				this.renderChildCards(listEl, child.children, depth + 1);
-			}
 		}
 	}
 

@@ -897,16 +897,32 @@ var KanbanView = class extends import_obsidian.ItemView {
         this.handleDrop(lane, listEl);
       });
       for (const item of lane.items) {
-        if (this.isItemVisible(item)) this.renderCard(listEl, item, lane);
+        if (this.isItemVisible(item)) this.renderCardTree(listEl, item, lane, 0);
       }
       this.renderAddCardInput(laneEl, lane);
     }
   }
-  renderCard(container, item, lane) {
+  /**
+   * Render a card and its children recursively, each as a separate card in the list.
+   * Children are indented by depth level.
+   */
+  renderCardTree(container, item, lane, depth) {
+    this.renderCard(container, item, lane, depth);
+    for (const child of item.children) {
+      if (this.isItemVisible(child)) {
+        this.renderCardTree(container, child, lane, depth + 1);
+      }
+    }
+  }
+  renderCard(container, item, lane, depth = 0) {
     const cardEl = container.createDiv({
       cls: "kanban-matsuo-card",
       attr: { "data-item-id": item.id, draggable: "true", role: "listitem", tabindex: "0", "aria-label": item.title }
     });
+    if (depth > 0) {
+      cardEl.addClass("kanban-matsuo-card-child");
+      cardEl.style.setProperty("--card-depth", `${depth}`);
+    }
     if (item.checked) cardEl.addClass("kanban-matsuo-card-checked");
     cardEl.addEventListener("dragstart", (e) => {
       this.draggedItem = item;
@@ -1007,64 +1023,6 @@ var KanbanView = class extends import_obsidian.ItemView {
         cls: "kanban-matsuo-progress-text",
         text: t("subtask.progress", { done, total })
       });
-      this.renderChildCards(bodyEl, item.children, 0);
-    }
-  }
-  /**
-   * Render child cards inline on the parent card.
-   * Each child is a mini-card with checkbox, title, tags, date — same as a main card.
-   */
-  renderChildCards(container, children, depth) {
-    var _a, _b, _c;
-    const listEl = container.createDiv({ cls: "kanban-matsuo-inline-subtasks" });
-    if (depth > 0) listEl.addClass("kanban-matsuo-inline-subtasks-nested");
-    for (const child of children) {
-      const row = listEl.createDiv({
-        cls: `kanban-matsuo-inline-subtask-row${child.checked ? " kanban-matsuo-subtask-done" : ""}`
-      });
-      if ((_a = this.board) == null ? void 0 : _a.settings.showCheckboxes) {
-        const checkbox = row.createEl("input", {
-          cls: "kanban-matsuo-inline-subtask-checkbox",
-          attr: { type: "checkbox", "aria-label": child.title }
-        });
-        checkbox.checked = child.checked;
-        checkbox.addEventListener("click", (e) => e.stopPropagation());
-        checkbox.addEventListener("change", (e) => {
-          e.stopPropagation();
-          child.checked = checkbox.checked;
-          this.render();
-          this.scheduleSave();
-        });
-      }
-      const contentEl = row.createDiv({ cls: "kanban-matsuo-inline-subtask-content" });
-      const titleEl = contentEl.createDiv({ cls: "kanban-matsuo-inline-subtask-title" });
-      const displayTitle = child.title.replace(/#[^\s#]+/g, "").replace(/@\{\d{4}-\d{2}-\d{2}\}/g, "").trim() || child.title;
-      if (this.file) {
-        import_obsidian.MarkdownRenderer.render(this.app, displayTitle, titleEl, this.file.path, this);
-      } else {
-        titleEl.setText(displayTitle);
-      }
-      if (((_b = this.board) == null ? void 0 : _b.settings.showTags) && child.tags.length > 0) {
-        const tagsEl = contentEl.createDiv({ cls: "kanban-matsuo-card-tags" });
-        for (const tag of child.tags) {
-          tagsEl.createSpan({ cls: "kanban-matsuo-tag", text: `#${tag}` });
-        }
-      }
-      if (((_c = this.board) == null ? void 0 : _c.settings.showDates) && child.dueDate) {
-        const dateEl = contentEl.createDiv({ cls: "kanban-matsuo-card-date" });
-        const today = this.getToday();
-        if (child.dueDate < today) dateEl.addClass("kanban-matsuo-date-overdue");
-        else if (child.dueDate === today) dateEl.addClass("kanban-matsuo-date-today");
-        dateEl.setText(`\u{1F4C5} ${child.dueDate}`);
-      }
-      row.addEventListener("click", (e) => {
-        if (e.target.closest("input, a")) return;
-        e.stopPropagation();
-        this.openCardEditor(child, null);
-      });
-      if (child.children.length > 0) {
-        this.renderChildCards(listEl, child.children, depth + 1);
-      }
     }
   }
   countChildren(children) {
