@@ -3,8 +3,6 @@ import {
 	WorkspaceLeaf,
 	TFile,
 	Menu,
-	Modal,
-	Setting,
 	setIcon,
 	normalizePath,
 } from 'obsidian';
@@ -22,6 +20,22 @@ import {
 } from './parser';
 import { t } from './lang';
 import { createOrUpdateLinkedNote, syncAllLinkedNotes, colorForUuid } from './linked-notes';
+import { WipLimitModal, ConfirmDeleteModal, CardEditorModal, ArchiveModal } from './modals';
+import {
+	GanttContext,
+	updateGanttBarStatesInDom,
+	updateGanttChildBarStatesInDom,
+	renderWbs,
+	computeParentDates,
+	highlightWbsRow,
+} from './gantt';
+import {
+	DragContext,
+	handleDragOver,
+	handleDrop,
+	removeItemRecursive,
+	setupTouchDragCard,
+} from './drag-drop';
 
 export const KANBAN_VIEW_TYPE = 'kanban-matsuo-view';
 
@@ -60,6 +74,15 @@ export class KanbanView extends ItemView {
 
 	// External change detection (counter to handle concurrent saves)
 	private ignoreModifyCount = 0;
+
+	// Drag state for indent detection
+	private dragOriginX = 0;
+	private dragOriginDepth = 0;
+	private lastDragAfterElId: string | null = null;
+	private lastDragDepth = -1;
+
+	// Gantt auto-scroll timer
+	private ganttAutoScrollTimer: number | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: KanbanPlugin) {
 		super(leaf);
@@ -198,7 +221,7 @@ export class KanbanView extends ItemView {
 		// Recompute parent dates from children before any rendering
 		for (const lane of this.board.lanes) {
 			for (const item of lane.items) {
-				if (!item.archived) this.computeParentDates(item);
+				if (!item.archived) computeParentDates(item);
 			}
 		}
 
@@ -592,15 +615,22 @@ export class KanbanView extends ItemView {
 
 				e.preventDefault();
 				if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-				this.handleDragOver(e, listEl, lane);
+				const ctx = this.getDragContext();
+				handleDragOver(e, listEl, lane, ctx);
+				this.syncDragContext(ctx);
 			});
 			// dragleave: do nothing (dragend handles cleanup)
 			// Removing placeholder on dragleave causes flicker because
 			// dragleave fires when entering child elements.
+
 			listEl.addEventListener('drop', (e) => {
 				if (!this.draggedItem) return;
 				e.preventDefault();
-				this.handleDrop(lane, listEl);
+				const ctx = this.getDragContext();
+				handleDrop(lane, listEl, ctx, { lanes: this.board!.lanes });
+				this.syncDragContext(ctx);
+				this.render();
+				this.scheduleSave();
 			});
 
 			for (const item of lane.items) {
@@ -663,7 +693,7 @@ export class KanbanView extends ItemView {
 		});
 
 		// Touch drag for card
-		this.setupTouchDragCard(cardEl, item, lane);
+		setupTouchDragCard(cardEl, item, lane, this.getDragContext());
 
 		// Keyboard
 		cardEl.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -675,7 +705,8 @@ export class KanbanView extends ItemView {
 		// Click card body → highlight in WBS
 		cardEl.addEventListener('click', (e) => {
 			if ((e.target as HTMLElement).closest('a, input, button')) return;
-			this.highlightWbsRow(item.id);
+			const ctx = this.getGanttContext();
+			highlightWbsRow(ctx, item.id);
 		});
 
 		// Checkbox
@@ -700,9 +731,10 @@ export class KanbanView extends ItemView {
 				this.updateProgressBarsInDom();
 
 				// Update gantt chart bars (done state)
-				this.updateGanttBarStatesInDom(item);
+				const ctx = this.getGanttContext();
+				updateGanttBarStatesInDom(ctx, item);
 				if (item.children.length > 0) {
-					this.updateGanttChildBarStatesInDom(item.children);
+					updateGanttChildBarStatesInDom(ctx, item.children);
 				}
 
 				this.scheduleSave();
@@ -1013,27 +1045,6 @@ export class KanbanView extends ItemView {
 		}
 	}
 
-	/**
-	 * Update gantt bar done state for an item in DOM.
-	 */
-	private updateGanttBarStatesInDom(item: KanbanItem): void {
-		const row = this.contentEl.querySelector(`.kanban-matsuo-gantt-row[data-gantt-id="${item.id}"]`) as HTMLElement | null;
-		if (!row) return;
-		row.toggleClass('kanban-matsuo-wbs-done', item.checked);
-		const bar = row.querySelector('.kanban-matsuo-gantt-bar-continuous') as HTMLElement | null;
-		if (bar) bar.toggleClass('kanban-matsuo-gantt-bar-done', item.checked);
-	}
-
-	/**
-	 * Update gantt bars for all children recursively.
-	 */
-	private updateGanttChildBarStatesInDom(children: KanbanItem[]): void {
-		for (const child of children) {
-			this.updateGanttBarStatesInDom(child);
-			if (child.children.length > 0) this.updateGanttChildBarStatesInDom(child.children);
-		}
-	}
-
 	private getAllItemsFlat(): KanbanItem[] {
 		if (!this.board) return [];
 		const result: KanbanItem[] = [];
@@ -1066,680 +1077,67 @@ export class KanbanView extends ItemView {
 		return { done, total };
 	}
 
+	/** Build a GanttContext from current state. */
+	private getGanttContext(): GanttContext {
+		return {
+			contentEl: this.contentEl,
+			board: this.board!,
+			ganttHiddenLanes: this.ganttHiddenLanes,
+			ganttSortedIds: this.ganttSortedIds,
+			ganttDragging: this.ganttDragging,
+			ganttAutoScrollTimer: this.ganttAutoScrollTimer,
+			getToday: () => this.getToday(),
+			countChildren: (children) => this.countChildren(children),
+			openCardEditor: (item) => this.openCardEditor(item, null as unknown as KanbanLane),
+			scheduleSave: () => this.scheduleSave(),
+			render: () => this.render(),
+		};
+	}
+
+	/** Sync mutable gantt state back from context after delegation. */
+	private syncGanttContext(ctx: GanttContext): void {
+		this.ganttSortedIds = ctx.ganttSortedIds;
+		this.ganttDragging = ctx.ganttDragging;
+		this.ganttAutoScrollTimer = ctx.ganttAutoScrollTimer;
+	}
+
 	/**
 	 * Render WBS/Gantt chart below the board.
 	 * Left: task tree with status (lane). Right: date timeline bars.
 	 */
 	private renderWbs(container: HTMLElement): void {
 		if (!this.board) return;
-
-		// Collect all items flat with lane info
-		// Parent dates already computed in render()
-		// Flatten: top-level items with children inline (parent+children always together)
-		const topItems: { item: KanbanItem; lane: string }[] = [];
-		for (const lane of this.board.lanes) {
-			if (this.ganttHiddenLanes.has(lane.title)) continue;
-			for (const item of lane.items) {
-				if (!item.archived) topItems.push({ item, lane: lane.title });
-			}
-		}
-
-		// Sort top-level by start date (children stay with parent)
-		if (this.ganttDragging && this.ganttSortedIds.length > 0) {
-			const idOrder = new Map(this.ganttSortedIds.map((id, i) => [id, i]));
-			topItems.sort((a, b) => (idOrder.get(a.item.id) ?? 999) - (idOrder.get(b.item.id) ?? 999));
-		} else {
-			topItems.sort((a, b) => {
-				const aDate = a.item.startDate || a.item.endDate || '9999-99-99';
-				const bDate = b.item.startDate || b.item.endDate || '9999-99-99';
-				return aDate.localeCompare(bDate);
-			});
-		}
-
-		// Flatten sorted top-level with their children
-		const flatItems: { item: KanbanItem; lane: string; depth: number }[] = [];
-		for (const { item, lane } of topItems) {
-			this.flattenForWbs(item, lane, 0, flatItems);
-		}
-		this.ganttSortedIds = topItems.map((t) => t.item.id);
-
-		// Compute date range for timeline
-		const today = this.getToday();
-		let minDate = today;
-		let maxDate = today;
-		for (const { item } of flatItems) {
-			if (item.startDate && item.startDate < minDate) minDate = item.startDate;
-			if (item.endDate && item.endDate > maxDate) maxDate = item.endDate;
-		}
-		const rangeStart = this.addDays(minDate, -7);
-		const rangeEnd = this.addDays(maxDate, 30);
-		const dates = this.generateDateRange(rangeStart, rangeEnd);
-
-		const wbsContainer = container.createDiv({ cls: 'kanban-matsuo-wbs' });
-		const wrapper = wbsContainer.createDiv({ cls: 'kanban-matsuo-gantt-wrapper' });
-
-		// Shift+wheel → horizontal scroll, normal wheel → vertical scroll
-		wrapper.addEventListener('wheel', (e) => {
-			if (e.shiftKey) {
-				e.preventDefault();
-				wrapper.scrollLeft += e.deltaY;
-			}
-			// Normal wheel: let default vertical scroll happen
-		}, { passive: false });
-
-		// Click+drag on empty area to pan (grab and move)
-		let isPanning = false;
-		let panStartX = 0;
-		let panStartY = 0;
-		let panScrollLeft = 0;
-		let panScrollTop = 0;
-
-		wrapper.addEventListener('mousedown', (e) => {
-			// Only start pan if clicking on empty area (not on a bar or handle)
-			const target = e.target as HTMLElement;
-			if (target.closest('.kanban-matsuo-gantt-bar-continuous, .kanban-matsuo-gantt-handle')) return;
-
-			// Left click on the gantt area (cells, right-cells, or wrapper itself)
-			if (e.button === 0 && (target.closest('.kanban-matsuo-gantt-right-cells') || target.closest('.kanban-matsuo-gantt-wrapper'))) {
-				isPanning = true;
-				panStartX = e.clientX;
-				panStartY = e.clientY;
-				panScrollLeft = wrapper.scrollLeft;
-				panScrollTop = wrapper.scrollTop;
-				wrapper.style.cursor = 'grabbing';
-				e.preventDefault();
-			}
-		});
-
-		wrapper.addEventListener('mousemove', (e) => {
-			if (!isPanning) return;
-			wrapper.scrollLeft = panScrollLeft - (e.clientX - panStartX);
-			wrapper.scrollTop = panScrollTop - (e.clientY - panStartY);
-		});
-
-		wrapper.addEventListener('mouseup', () => {
-			if (isPanning) {
-				isPanning = false;
-				wrapper.style.cursor = '';
-			}
-		});
-
-		wrapper.addEventListener('mouseleave', () => {
-			if (isPanning) {
-				isPanning = false;
-				wrapper.style.cursor = '';
-			}
-		});
-
-		// HEADER ROW 1: month (each cell = 28px, label on first day of month)
-		const hdr1 = wrapper.createDiv({ cls: 'kanban-matsuo-gantt-row kanban-matsuo-gantt-hdr' });
-		const hdr1Left = hdr1.createDiv({ cls: 'kanban-matsuo-gantt-left-cell kanban-matsuo-gantt-hdr-cell' });
-		hdr1Left.createSpan({ text: t('wbs.title'), cls: 'kanban-matsuo-gantt-hdr-task' });
-		// Lane filter button
-		const laneFilterBtn = hdr1Left.createEl('button', {
-			cls: 'kanban-matsuo-gantt-lane-filter clickable-icon',
-			attr: { 'aria-label': t('wbs.filter-lanes'), 'data-tooltip-position': 'top' },
-		});
-		setIcon(laneFilterBtn, 'filter');
-		if (this.ganttHiddenLanes.size > 0) laneFilterBtn.addClass('kanban-matsuo-gantt-lane-filter-active');
-		laneFilterBtn.addEventListener('click', (e) => this.showGanttLaneFilterMenu(e));
-		const hdr1Right = hdr1.createDiv({ cls: 'kanban-matsuo-gantt-right-cells kanban-matsuo-gantt-hdr-cell' });
-		// Build month blocks: each block spans the days in that month
-		let currentMonth = '';
-		let monthDayCount = 0;
-		let monthIndex = 0;
-		let monthEl: HTMLElement | null = null;
-		for (let i = 0; i <= dates.length; i++) {
-			const ym = i < dates.length ? dates[i].slice(0, 7) : '';
-			if (ym !== currentMonth) {
-				// Finish previous month block
-				if (monthEl && monthDayCount > 0) {
-					monthEl.style.setProperty('width', `${monthDayCount * 28}px`);
-					monthEl.style.setProperty('min-width', `${monthDayCount * 28}px`);
-				}
-				if (i >= dates.length) break;
-				// Start new month block
-				currentMonth = ym;
-				monthIndex++;
-				monthDayCount = 1;
-				const [y, m] = ym.split('-');
-				monthEl = hdr1Right.createDiv({
-					cls: `kanban-matsuo-gantt-month-block ${monthIndex % 2 === 0 ? 'kanban-matsuo-gantt-month-even' : 'kanban-matsuo-gantt-month-odd'}`,
-					text: `${y}/${m}`,
-				});
-			} else {
-				monthDayCount++;
-			}
-		}
-
-		// HEADER ROW 2: days
-		const hdr2 = wrapper.createDiv({ cls: 'kanban-matsuo-gantt-row kanban-matsuo-gantt-hdr' });
-		const hdr2Left = hdr2.createDiv({ cls: 'kanban-matsuo-gantt-left-cell kanban-matsuo-gantt-hdr-cell' });
-		hdr2Left.createSpan({ text: t('wbs.col-task'), cls: 'kanban-matsuo-gantt-hdr-task' });
-		hdr2Left.createSpan({ text: t('wbs.col-start'), cls: 'kanban-matsuo-gantt-hdr-date' });
-		hdr2Left.createSpan({ text: t('wbs.col-end'), cls: 'kanban-matsuo-gantt-hdr-date' });
-		hdr2Left.createSpan({ text: t('wbs.col-days'), cls: 'kanban-matsuo-gantt-hdr-num' });
-		hdr2Left.createSpan({ text: t('wbs.col-progress'), cls: 'kanban-matsuo-gantt-hdr-num' });
-		const hdr2Right = hdr2.createDiv({ cls: 'kanban-matsuo-gantt-right-cells kanban-matsuo-gantt-hdr-cell' });
-		for (const d of dates) {
-			const dayCell = hdr2Right.createDiv({ cls: 'kanban-matsuo-gantt-day-cell' });
-			dayCell.setText(d.slice(8, 10));
-			if (d === today) dayCell.addClass('kanban-matsuo-gantt-today');
-			const dow = new Date(d + 'T00:00:00').getDay();
-			if (dow === 0 || dow === 6) dayCell.addClass('kanban-matsuo-gantt-weekend');
-		}
-
-		// BODY ROWS: each row has left (task+progress) and right (date cells)
-		const bodyArea = wrapper.createDiv({ cls: 'kanban-matsuo-gantt-body' });
-
-		for (const { item, depth } of flatItems) {
-			const row = bodyArea.createDiv({
-				cls: `kanban-matsuo-gantt-row${item.checked ? ' kanban-matsuo-wbs-done' : ''}`,
-				attr: { 'data-gantt-id': item.id },
-			});
-
-			// Left: task + progress
-			const leftCell = row.createDiv({ cls: 'kanban-matsuo-gantt-left-cell' });
-			const taskLink = leftCell.createEl('a', {
-				cls: 'kanban-matsuo-gantt-task kanban-matsuo-gantt-task-link',
-				attr: { href: '#' },
-			});
-			if (depth > 0) taskLink.style.setProperty('--gantt-depth', `${depth}`);
-			taskLink.setText(`${depth > 0 ? '└ ' : ''}${item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim()}`);
-			taskLink.addEventListener('click', (e) => {
-				e.preventDefault();
-				this.openCardEditor(item, null as unknown as KanbanLane);
-			});
-
-			// Start date
-			leftCell.createSpan({ cls: 'kanban-matsuo-gantt-date-col', text: item.startDate || '-' });
-
-			// End date
-			leftCell.createSpan({ cls: 'kanban-matsuo-gantt-date-col', text: item.endDate || '-' });
-
-			// Days
-			leftCell.createSpan({ cls: 'kanban-matsuo-gantt-num-col', text: (() => {
-				const s = item.startDate || item.endDate;
-				const e = item.endDate || item.startDate;
-				if (s && e) {
-					const ms = new Date(e + 'T00:00:00').getTime() - new Date(s + 'T00:00:00').getTime();
-					return t('wbs.days', { days: Math.round(ms / 86400000) + 1 });
-				}
-				return '-';
-			})() });
-
-			// Progress % (based on children check count)
-			leftCell.createSpan({ cls: 'kanban-matsuo-gantt-num-col', text: (() => {
-				if (item.children.length > 0) {
-					const { done, total } = this.countChildren(item.children);
-					return total > 0 ? `${Math.round((done / total) * 100)}%` : '0%';
-				}
-				return item.checked ? '100%' : '0%';
-			})() });
-
-			// Right: date cells + continuous bar overlay
-			const rightCells = row.createDiv({ cls: 'kanban-matsuo-gantt-right-cells' });
-			const isParent = item.children.length > 0;
-			const cellWidth = 28;
-
-			// Render grid cells (background: today, weekend)
-			for (let di = 0; di < dates.length; di++) {
-				const d = dates[di];
-				const cell = rightCells.createDiv({
-					cls: 'kanban-matsuo-gantt-day-cell kanban-matsuo-gantt-cell',
-					attr: { 'data-date': d },
-				});
-				if (d === today) cell.addClass('kanban-matsuo-gantt-today');
-				const dow = new Date(d + 'T00:00:00').getDay();
-				if (dow === 0 || dow === 6) cell.addClass('kanban-matsuo-gantt-weekend');
-
-				// Click empty cell to set date (leaf tasks only)
-				if (!isParent) {
-					const start = item.startDate || item.endDate;
-					const end = item.endDate || item.startDate;
-					const inRange = start && end && d >= start && d <= end;
-					if (!inRange) {
-						cell.addEventListener('click', () => {
-							if (!item.startDate && !item.endDate) { item.startDate = d; item.endDate = d; }
-							else if (!item.startDate) { item.startDate = d < item.endDate! ? d : item.endDate; if (d > item.endDate!) item.endDate = d; }
-							else if (!item.endDate) { item.endDate = d > item.startDate ? d : item.startDate; if (d < item.startDate) item.startDate = d; }
-							this.updateItemTitleDates(item);
-							this.scheduleSave();
-							this.render();
-						});
-					}
-				}
-			}
-
-			// Render continuous bar overlay
-			const start = item.startDate || item.endDate;
-			const end = item.endDate || item.startDate;
-			if (start && end) {
-				const startIdx = dates.indexOf(start);
-				const endIdx = dates.indexOf(end);
-				if (startIdx >= 0 && endIdx >= 0) {
-					const barLeft = startIdx * cellWidth;
-					const barWidth = (endIdx - startIdx + 1) * cellWidth;
-
-					const bar = rightCells.createDiv({ cls: 'kanban-matsuo-gantt-bar-continuous' });
-					bar.style.setProperty('left', `${barLeft}px`);
-					bar.style.setProperty('width', `${barWidth}px`);
-
-					if (item.checked) bar.addClass('kanban-matsuo-gantt-bar-done');
-					if (isParent) bar.addClass('kanban-matsuo-gantt-bar-parent');
-
-					const label = item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim();
-					bar.setAttribute('data-label', label);
-
-					if (!isParent) {
-						// Resize handles
-						bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-left' });
-						bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-right' });
-
-						this.setupGanttBarDrag(bar, item, dates);
-						const lh = bar.querySelector('.kanban-matsuo-gantt-handle-left') as HTMLElement;
-						if (lh) this.setupGanttResize(lh, item, dates, 'start');
-						const rh = bar.querySelector('.kanban-matsuo-gantt-handle-right') as HTMLElement;
-						if (rh) this.setupGanttResize(rh, item, dates, 'end');
-					}
-				}
-			}
-		}
-
+		const ctx = this.getGanttContext();
+		renderWbs(ctx, container);
+		this.syncGanttContext(ctx);
 	}
 
-	/**
-	 * Recursively compute parent dates from children.
-	 * A parent with children cannot have its own dates - they are derived
-	 * from the min start and max end of all descendant leaf tasks.
-	 */
-	private computeParentDates(item: KanbanItem): void {
-		if (item.children.length === 0) return;
-
-		// First, recursively compute children
-		for (const child of item.children) {
-			if (!child.archived) this.computeParentDates(child);
-		}
-
-		// Collect min start and max end from all descendants
-		let minStart: string | null = null;
-		let maxEnd: string | null = null;
-
-		const collectDates = (items: KanbanItem[]) => {
-			for (const c of items) {
-				if (c.archived) continue;
-				// Use startDate for min, endDate for max
-				const s = c.startDate || c.endDate;
-				const e = c.endDate || c.startDate;
-				if (s && (!minStart || s < minStart)) minStart = s;
-				if (e && (!maxEnd || e > maxEnd)) maxEnd = e;
-				collectDates(c.children);
-			}
+	/** Build a DragContext from current state. */
+	private getDragContext(): DragContext {
+		return {
+			draggedItem: this.draggedItem,
+			draggedFromLane: this.draggedFromLane,
+			dragPlaceholder: this.dragPlaceholder,
+			dragOriginX: this.dragOriginX,
+			dragOriginDepth: this.dragOriginDepth,
+			lastDragAfterElId: this.lastDragAfterElId,
+			lastDragDepth: this.lastDragDepth,
+			touchStartX: this.touchStartX,
+			touchStartY: this.touchStartY,
 		};
-		collectDates(item.children);
-
-		// Override parent dates
-		item.startDate = minStart;
-		item.endDate = maxEnd;
-		// Update title to remove manual date markers
-		item.title = item.title.replace(/@\{[^}]*\}/g, '').trim();
 	}
 
-	/**
-	 * Update gantt bar cells in-place without re-rendering the whole view.
-	 * Finds the row by item id and toggles bar visibility per cell.
-	 */
-	private updateGanttRowInPlace(item: KanbanItem, dates: string[]): void {
-		const row = this.contentEl.querySelector(
-			`.kanban-matsuo-gantt-row[data-gantt-id="${item.id}"]`
-		) as HTMLElement | null;
-		if (!row) return;
-
-		const rightCells = row.querySelector('.kanban-matsuo-gantt-right-cells') as HTMLElement | null;
-		if (!rightCells) return;
-
-		// Update continuous bar position/width
-		let bar = rightCells.querySelector('.kanban-matsuo-gantt-bar-continuous') as HTMLElement | null;
-		const start = item.startDate || item.endDate;
-		const end = item.endDate || item.startDate;
-		const cellWidth = 28;
-
-		if (start && end) {
-			const startIdx = dates.indexOf(start);
-			const endIdx = dates.indexOf(end);
-			if (startIdx >= 0 && endIdx >= 0) {
-				if (!bar) {
-					bar = rightCells.createDiv({ cls: 'kanban-matsuo-gantt-bar-continuous' });
-				}
-				bar.style.setProperty('left', `${startIdx * cellWidth}px`);
-				bar.style.setProperty('width', `${(endIdx - startIdx + 1) * cellWidth}px`);
-			} else if (bar) {
-				bar.remove();
-			}
-		} else if (bar) {
-			bar.remove();
-		}
-	}
-
-	/**
-	 * Auto-scroll the gantt wrapper when mouse is near edges during drag.
-	 */
-	private ganttAutoScrollTimer: number | null = null;
-
-	private showGanttLaneFilterMenu(e: MouseEvent | Event): void {
-		if (!this.board) return;
-		const menu = new Menu();
-
-		// Show all
-		menu.addItem((mi) => mi.setTitle(t('wbs.all-lanes')).setIcon('list').onClick(() => {
-			this.ganttHiddenLanes.clear();
-			this.render();
-		}));
-
-		menu.addSeparator();
-
-		// Each lane as toggle
-		for (const lane of this.board.lanes) {
-			const hidden = this.ganttHiddenLanes.has(lane.title);
-			menu.addItem((mi) => {
-				mi.setTitle(`${hidden ? '○ ' : '● '}${lane.title}`).setIcon(hidden ? 'eye-off' : 'eye').onClick(() => {
-					if (hidden) {
-						this.ganttHiddenLanes.delete(lane.title);
-					} else {
-						this.ganttHiddenLanes.add(lane.title);
-					}
-					this.render();
-				});
-			});
-		}
-
-		if (e instanceof MouseEvent) menu.showAtMouseEvent(e);
-		else if (e.target instanceof HTMLElement) {
-			const rect = e.target.getBoundingClientRect();
-			menu.showAtPosition({ x: rect.left, y: rect.bottom });
-		}
-	}
-
-	private startGanttAutoScroll(ev: MouseEvent): void {
-		const wrapper = this.contentEl.querySelector('.kanban-matsuo-gantt-wrapper') as HTMLElement | null;
-		if (!wrapper) return;
-
-		const rect = wrapper.getBoundingClientRect();
-		const edgeZone = 60;
-		const speed = 8;
-
-		if (this.ganttAutoScrollTimer !== null) {
-			window.clearInterval(this.ganttAutoScrollTimer);
-			this.ganttAutoScrollTimer = null;
-		}
-
-		let scrollDx = 0;
-		if (ev.clientX > rect.right - edgeZone) scrollDx = speed;
-		else if (ev.clientX < rect.left + 540 + edgeZone && wrapper.scrollLeft > 0) scrollDx = -speed;
-
-		if (scrollDx !== 0) {
-			this.ganttAutoScrollTimer = window.setInterval(() => {
-				wrapper.scrollLeft += scrollDx;
-			}, 16);
-		}
-	}
-
-	/**
-	 * Scroll WBS to the row matching itemId and flash-highlight it.
-	 */
-	private highlightWbsRow(itemId: string): void {
-		const row = this.contentEl.querySelector(
-			`.kanban-matsuo-gantt-row[data-gantt-id="${itemId}"]`
-		) as HTMLElement | null;
-		if (!row) return;
-
-		const wrapper = this.contentEl.querySelector('.kanban-matsuo-gantt-wrapper') as HTMLElement | null;
-		if (!wrapper) return;
-
-		// Calculate target scroll position (both axes at once)
-		const wrapperRect = wrapper.getBoundingClientRect();
-		const rowRect = row.getBoundingClientRect();
-
-		// Vertical: center the row
-		const targetTop = wrapper.scrollTop + (rowRect.top - wrapperRect.top) - wrapperRect.height / 2 + rowRect.height / 2;
-
-		// Horizontal: scroll to bar start
-		let targetLeft = wrapper.scrollLeft;
-		const bar = row.querySelector('.kanban-matsuo-gantt-bar-continuous') as HTMLElement | null;
-		if (bar) {
-			const barLeft = parseInt(bar.style.getPropertyValue('left') || '0', 10);
-			const leftColWidth = 540;
-			targetLeft = Math.max(0, barLeft - leftColWidth - 50);
-		}
-
-		// Single smooth scroll for both axes
-		wrapper.scrollTo({
-			left: targetLeft,
-			top: Math.max(0, targetTop),
-			behavior: 'smooth',
-		});
-
-		// Flash highlight
-		row.addClass('kanban-matsuo-gantt-row-highlight');
-		window.setTimeout(() => {
-			row.removeClass('kanban-matsuo-gantt-row-highlight');
-		}, 2000);
-	}
-
-	private stopGanttAutoScroll(): void {
-		if (this.ganttAutoScrollTimer !== null) {
-			window.clearInterval(this.ganttAutoScrollTimer);
-			this.ganttAutoScrollTimer = null;
-		}
-	}
-
-	private setupGanttBarDrag(bar: HTMLElement, item: KanbanItem, dates: string[]): void {
-		let startX = 0;
-		let origStart = '';
-		let origEnd = '';
-
-		bar.addEventListener('mousedown', (e) => {
-			if ((e.target as HTMLElement).classList.contains('kanban-matsuo-gantt-handle-left') ||
-				(e.target as HTMLElement).classList.contains('kanban-matsuo-gantt-handle-right')) return;
-
-			e.preventDefault();
-			e.stopPropagation();
-			startX = e.clientX;
-			origStart = item.startDate || '';
-			origEnd = item.endDate || '';
-			this.ganttDragging = true;
-
-			const cellWidth = 28;
-
-			const onMouseMove = (ev: MouseEvent) => {
-				this.startGanttAutoScroll(ev);
-
-				const dx = ev.clientX - startX;
-				const dayShift = Math.round(dx / cellWidth);
-				if (dayShift === 0) return;
-
-				const si = dates.indexOf(origStart);
-				const ei = dates.indexOf(origEnd);
-				if (si < 0 || ei < 0) return;
-
-				const newSi = Math.max(0, Math.min(dates.length - 1, si + dayShift));
-				const newEi = Math.max(0, Math.min(dates.length - 1, ei + dayShift));
-
-				item.startDate = dates[newSi];
-				item.endDate = dates[newEi];
-				this.updateItemTitleDates(item);
-				this.updateGanttRowInPlace(item, dates);
-			};
-
-			const onMouseUp = () => {
-				document.removeEventListener('mousemove', onMouseMove);
-				document.removeEventListener('mouseup', onMouseUp);
-				this.stopGanttAutoScroll();
-				this.ganttDragging = false;
-				this.scheduleSave();
-				this.render();
-			};
-
-			document.addEventListener('mousemove', onMouseMove);
-			document.addEventListener('mouseup', onMouseUp);
-		});
-	}
-
-	private setupGanttResize(handle: HTMLElement, item: KanbanItem, dates: string[], edge: 'start' | 'end'): void {
-		handle.addEventListener('mousedown', (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-
-			const startX = e.clientX;
-			const origDate = edge === 'start' ? (item.startDate || '') : (item.endDate || '');
-			const cellWidth = 28;
-			this.ganttDragging = true;
-
-			const onMouseMove = (ev: MouseEvent) => {
-				this.startGanttAutoScroll(ev);
-
-				const dx = ev.clientX - startX;
-				const dayShift = Math.round(dx / cellWidth);
-				if (dayShift === 0) return;
-
-				const origIdx = dates.indexOf(origDate);
-				if (origIdx < 0) return;
-
-				const newIdx = Math.max(0, Math.min(dates.length - 1, origIdx + dayShift));
-				const newDate = dates[newIdx];
-
-				if (edge === 'start') {
-					if (item.endDate && newDate > item.endDate) return;
-					item.startDate = newDate;
-				} else {
-					if (item.startDate && newDate < item.startDate) return;
-					item.endDate = newDate;
-				}
-
-				this.updateItemTitleDates(item);
-				this.updateGanttRowInPlace(item, dates);
-			};
-
-			const onMouseUp = () => {
-				document.removeEventListener('mousemove', onMouseMove);
-				document.removeEventListener('mouseup', onMouseUp);
-				this.stopGanttAutoScroll();
-				this.ganttDragging = false;
-				this.scheduleSave();
-				this.render();
-			};
-
-			document.addEventListener('mousemove', onMouseMove);
-			document.addEventListener('mouseup', onMouseUp);
-		});
-	}
-
-	/**
-	 * Update item.title to reflect current startDate/endDate.
-	 */
-	private updateItemTitleDates(item: KanbanItem): void {
-		// Remove existing date markers from title
-		let title = item.title.replace(/@\{[^}]*\}/g, '').trim();
-
-		if (item.startDate && item.endDate) {
-			title += ` @{${item.startDate}~${item.endDate}}`;
-		} else if (item.endDate) {
-			title += ` @{${item.endDate}}`;
-		} else if (item.startDate) {
-			title += ` @{${item.startDate}~}`;
-		}
-
-		item.title = title;
-	}
-
-	private flattenForWbs(item: KanbanItem, lane: string, depth: number, out: { item: KanbanItem; lane: string; depth: number }[]): void {
-		out.push({ item, lane, depth });
-		// Sort children by start date before flattening
-		const sortedChildren = item.children
-			.filter((c) => !c.archived)
-			.sort((a, b) => {
-				const aDate = a.startDate || a.endDate || '9999-99-99';
-				const bDate = b.startDate || b.endDate || '9999-99-99';
-				return aDate.localeCompare(bDate);
-			});
-		for (const child of sortedChildren) {
-			this.flattenForWbs(child, lane, depth + 1, out);
-		}
-	}
-
-	private addDays(dateStr: string, days: number): string {
-		const d = new Date(dateStr + 'T00:00:00');
-		d.setDate(d.getDate() + days);
-		const y = d.getFullYear();
-		const m = String(d.getMonth() + 1).padStart(2, '0');
-		const dd = String(d.getDate()).padStart(2, '0');
-		return `${y}-${m}-${dd}`;
-	}
-
-	private generateDateRange(start: string, end: string): string[] {
-		const dates: string[] = [];
-		let current = start;
-		while (current <= end) {
-			dates.push(current);
-			current = this.addDays(current, 1);
-		}
-		return dates;
-	}
-
-	/** Setup touch drag for lane reorder (mobile) */
-	private setupTouchDrag(handle: HTMLElement, el: HTMLElement, lane: KanbanLane): void {
-		let longPressTimer: number | null = null;
-		let isDragging = false;
-
-		handle.addEventListener('touchstart', (e) => {
-			const touch = e.touches[0];
-			this.touchStartX = touch.clientX; this.touchStartY = touch.clientY;
-			longPressTimer = window.setTimeout(() => { isDragging = true; el.addClass('kanban-matsuo-touch-dragging'); this.draggedLane = lane; }, 300);
-		}, { passive: true });
-
-		handle.addEventListener('touchmove', (e) => {
-			if (!isDragging) {
-				const touch = e.touches[0];
-				if (Math.abs(touch.clientX - this.touchStartX) > 10 || Math.abs(touch.clientY - this.touchStartY) > 10) {
-					if (longPressTimer !== null) { window.clearTimeout(longPressTimer); longPressTimer = null; }
-				}
-				return;
-			}
-			e.preventDefault();
-		});
-
-		handle.addEventListener('touchend', () => {
-			if (longPressTimer !== null) { window.clearTimeout(longPressTimer); longPressTimer = null; }
-			if (isDragging) { isDragging = false; el.removeClass('kanban-matsuo-touch-dragging'); this.draggedLane = null; }
-		}, { passive: true });
-	}
-
-	/** Setup touch drag for card (mobile) */
-	private setupTouchDragCard(cardEl: HTMLElement, item: KanbanItem, lane: KanbanLane): void {
-		let longPressTimer: number | null = null;
-		let isDragging = false;
-
-		cardEl.addEventListener('touchstart', (e) => {
-			const touch = e.touches[0];
-			this.touchStartX = touch.clientX; this.touchStartY = touch.clientY;
-			longPressTimer = window.setTimeout(() => { isDragging = true; cardEl.addClass('kanban-matsuo-touch-dragging'); this.draggedItem = item; this.draggedFromLane = lane; }, 300);
-		}, { passive: true });
-
-		cardEl.addEventListener('touchmove', (e) => {
-			if (!isDragging) {
-				const touch = e.touches[0];
-				if (Math.abs(touch.clientX - this.touchStartX) > 10 || Math.abs(touch.clientY - this.touchStartY) > 10) {
-					if (longPressTimer !== null) { window.clearTimeout(longPressTimer); longPressTimer = null; }
-				}
-				return;
-			}
-			e.preventDefault();
-		});
-
-		cardEl.addEventListener('touchend', () => {
-			if (longPressTimer !== null) { window.clearTimeout(longPressTimer); longPressTimer = null; }
-			if (isDragging) { isDragging = false; cardEl.removeClass('kanban-matsuo-touch-dragging'); this.draggedItem = null; this.draggedFromLane = null; }
-		}, { passive: true });
+	/** Sync mutable drag state back from context after delegation. */
+	private syncDragContext(ctx: DragContext): void {
+		this.draggedItem = ctx.draggedItem;
+		this.draggedFromLane = ctx.draggedFromLane;
+		this.dragPlaceholder = ctx.dragPlaceholder;
+		this.dragOriginX = ctx.dragOriginX;
+		this.dragOriginDepth = ctx.dragOriginDepth;
+		this.lastDragAfterElId = ctx.lastDragAfterElId;
+		this.lastDragDepth = ctx.lastDragDepth;
+		this.touchStartX = ctx.touchStartX;
+		this.touchStartY = ctx.touchStartY;
 	}
 
 	private isNewlineKey(e: KeyboardEvent): boolean {
@@ -1790,295 +1188,43 @@ export class KanbanView extends ItemView {
 		});
 	}
 
+	/** Setup touch drag for lane reorder (mobile) */
+	private setupTouchDrag(handle: HTMLElement, el: HTMLElement, lane: KanbanLane): void {
+		let longPressTimer: number | null = null;
+		let isDragging = false;
 
-	// Drag state for indent detection
-	private dragOriginX = 0;
-	private dragOriginDepth = 0;
-	private lastDragAfterElId: string | null = null;
-	private lastDragDepth = -1;
+		handle.addEventListener('touchstart', (e) => {
+			const touch = e.touches[0];
+			this.touchStartX = touch.clientX; this.touchStartY = touch.clientY;
+			longPressTimer = window.setTimeout(() => { isDragging = true; el.addClass('kanban-matsuo-touch-dragging'); this.draggedLane = lane; }, 300);
+		}, { passive: true });
 
-	private handleDragOver(e: DragEvent, listEl: HTMLElement, targetLane: KanbanLane): void {
-		if (!this.draggedItem) return;
-
-		// Find drop position
-		const afterEl = this.getDragAfterElement(listEl, e.clientY);
-		const afterElId = afterEl?.getAttribute('data-item-id') || null;
-
-		// Calculate indent depth
-		const isCrossLane = this.draggedFromLane !== targetLane;
-		let targetDepth = 0;
-		if (!isCrossLane) {
-			const dx = e.clientX - this.dragOriginX;
-			const depthDelta = Math.round(dx / 30);
-			targetDepth = Math.max(0, this.dragOriginDepth + depthDelta);
-
-			// Clamp to card above + 1
-			let aboveDepth = -1;
-			if (afterEl) {
-				let prev = afterEl.previousElementSibling;
-				while (prev && !prev.classList.contains('kanban-matsuo-card')) prev = prev.previousElementSibling;
-				if (prev instanceof HTMLElement) aboveDepth = this.getCardDepth(prev);
-			} else {
-				const allCards = listEl.querySelectorAll('.kanban-matsuo-card:not(.kanban-matsuo-card-dragging)');
-				const lastCard = allCards[allCards.length - 1] as HTMLElement | undefined;
-				if (lastCard) aboveDepth = this.getCardDepth(lastCard);
-			}
-			targetDepth = Math.min(targetDepth, aboveDepth + 1);
-		}
-
-		// Skip DOM update if nothing changed
-		if (afterElId === this.lastDragAfterElId && targetDepth === this.lastDragDepth && this.dragPlaceholder?.parentElement === listEl) {
-			return;
-		}
-		this.lastDragAfterElId = afterElId;
-		this.lastDragDepth = targetDepth;
-
-		// Remove old placeholder from other lanes
-		if (this.dragPlaceholder && this.dragPlaceholder.parentElement !== listEl) {
-			this.dragPlaceholder.remove();
-			this.dragPlaceholder = null;
-		}
-
-		// Create placeholder if needed
-		if (!this.dragPlaceholder) {
-			this.dragPlaceholder = listEl.createDiv({ cls: 'kanban-matsuo-drop-placeholder' });
-		}
-
-		// Position: only move if actually needed
-		const currentNext = this.dragPlaceholder.nextElementSibling;
-		const needsMove = afterEl ? currentNext !== afterEl : this.dragPlaceholder.parentElement !== listEl || currentNext !== null;
-		if (needsMove) {
-			if (afterEl) {
-				listEl.insertBefore(this.dragPlaceholder, afterEl);
-			} else {
-				listEl.appendChild(this.dragPlaceholder);
-			}
-		}
-
-		// Indent visual + label
-		this.dragPlaceholder.style.setProperty('--card-depth', `${targetDepth}`);
-		if (targetDepth > this.dragOriginDepth) {
-			this.dragPlaceholder.addClass('kanban-matsuo-drop-placeholder-indented');
-			this.dragPlaceholder.setText(t('drag.indent'));
-		} else if (targetDepth < this.dragOriginDepth) {
-			this.dragPlaceholder.removeClass('kanban-matsuo-drop-placeholder-indented');
-			this.dragPlaceholder.setText(t('drag.outdent'));
-		} else {
-			this.dragPlaceholder.removeClass('kanban-matsuo-drop-placeholder-indented');
-			this.dragPlaceholder.setText(t('drag.move-here'));
-		}
-	}
-
-	private getCardDepth(el: HTMLElement): number {
-		const depthStr = el.style.getPropertyValue('--card-depth');
-		return depthStr ? parseInt(depthStr, 10) : 0;
-	}
-
-	private getDragAfterElement(container: HTMLElement, y: number): HTMLElement | null {
-		const cards = Array.from(container.querySelectorAll('.kanban-matsuo-card:not(.kanban-matsuo-card-dragging)')) as HTMLElement[];
-
-		// If placeholder already exists, check if cursor is still within it
-		// If so, return current position (no change) to prevent oscillation
-		if (this.dragPlaceholder?.parentElement === container) {
-			const phRect = this.dragPlaceholder.getBoundingClientRect();
-			if (y >= phRect.top && y <= phRect.bottom) {
-				// Cursor is inside placeholder - return current next sibling
-				const next = this.dragPlaceholder.nextElementSibling;
-				return next instanceof HTMLElement && next.classList.contains('kanban-matsuo-card') ? next : null;
-			}
-		}
-
-		return cards.reduce<{ offset: number; el: HTMLElement | null }>(
-			(acc, card) => {
-				const box = card.getBoundingClientRect();
-				const offset = y - box.top - box.height / 2;
-				if (offset < 0 && offset > acc.offset) return { offset, el: card };
-				return acc;
-			},
-			{ offset: Number.NEGATIVE_INFINITY, el: null },
-		).el;
-	}
-
-	private handleDrop(targetLane: KanbanLane, listEl: HTMLElement): void {
-		if (!this.draggedItem || !this.draggedFromLane || !this.board) return;
-
-		const isCrossLane = this.draggedFromLane !== targetLane;
-
-		// Remove from source (could be top-level or nested)
-		this.removeItemRecursive(this.draggedFromLane.items, this.draggedItem);
-
-		// Cross-lane moves always go to top level
-		const targetDepth = isCrossLane ? 0
-			: (this.dragPlaceholder
-				? parseInt(this.dragPlaceholder.style.getPropertyValue('--card-depth') || '0', 10)
-				: 0);
-
-		// Build a flat list of visible cards with their items and depths
-		const flatList = this.buildFlatList(targetLane.items, 0);
-
-		// Find index in flat list where we're inserting
-		// Exclude the dragged card itself from cardsBefore
-		const draggedId = this.draggedItem.id;
-		const cardsBefore: string[] = [];
-		if (this.dragPlaceholder) {
-			for (const child of Array.from(listEl.children)) {
-				if (child === this.dragPlaceholder) break;
-				if (child.classList.contains('kanban-matsuo-card') && !child.classList.contains('kanban-matsuo-card-dragging')) {
-					const id = child.getAttribute('data-item-id');
-					if (id && id !== draggedId) cardsBefore.push(id);
+		handle.addEventListener('touchmove', (e) => {
+			if (!isDragging) {
+				const touch = e.touches[0];
+				if (Math.abs(touch.clientX - this.touchStartX) > 10 || Math.abs(touch.clientY - this.touchStartY) > 10) {
+					if (longPressTimer !== null) { window.clearTimeout(longPressTimer); longPressTimer = null; }
 				}
+				return;
 			}
-		}
+			e.preventDefault();
+		});
 
-		// Also find the card AFTER the placeholder
-		let cardAfterId: string | null = null;
-		if (this.dragPlaceholder) {
-			let found = false;
-			for (const child of Array.from(listEl.children)) {
-				if (child === this.dragPlaceholder) { found = true; continue; }
-				if (found && child.classList.contains('kanban-matsuo-card') && !child.classList.contains('kanban-matsuo-card-dragging')) {
-					cardAfterId = child.getAttribute('data-item-id');
-					break;
-				}
-			}
-		}
-
-		if (targetDepth === 0) {
-			// Insert at top level
-			if (cardAfterId) {
-				// Find the top-level item that contains cardAfterId, insert before it
-				const afterEntry = flatList.find((f) => f.item.id === cardAfterId);
-				if (afterEntry && afterEntry.depth === 0) {
-					const idx = targetLane.items.indexOf(afterEntry.item);
-					if (idx >= 0) {
-						targetLane.items.splice(idx, 0, this.draggedItem);
-					} else {
-						targetLane.items.push(this.draggedItem);
-					}
-				} else {
-					const insertIdx = this.findTopLevelInsertIndex(targetLane, cardsBefore);
-					targetLane.items.splice(insertIdx, 0, this.draggedItem);
-				}
-			} else {
-				const insertIdx = this.findTopLevelInsertIndex(targetLane, cardsBefore);
-				targetLane.items.splice(insertIdx, 0, this.draggedItem);
-			}
-		} else {
-			// Find the parent: walk backwards through cards above to find one at depth < targetDepth
-			let parentItem: KanbanItem | null = null;
-			for (let i = cardsBefore.length - 1; i >= 0; i--) {
-				const entry = flatList.find((f) => f.item.id === cardsBefore[i]);
-				if (entry && entry.depth < targetDepth) {
-					parentItem = entry.item;
-					break;
-				}
-			}
-
-			// If no card above, the parent is determined by the card after
-			if (!parentItem && cardAfterId) {
-				const afterEntry = flatList.find((f) => f.item.id === cardAfterId);
-				if (afterEntry) {
-					// Find the parent of cardAfter at depth = targetDepth - 1
-					for (const f of flatList) {
-						if (f.depth === targetDepth - 1 && f.item.children.some((c) => c.id === cardAfterId)) {
-							parentItem = f.item;
-							break;
-						}
-					}
-				}
-			}
-
-			if (parentItem) {
-				// Insert at correct position within parent's children
-				if (cardAfterId) {
-					const afterIdx = parentItem.children.findIndex((c) => c.id === cardAfterId);
-					if (afterIdx >= 0) {
-						parentItem.children.splice(afterIdx, 0, this.draggedItem);
-					} else if (cardsBefore.length > 0) {
-						const lastAboveId = cardsBefore[cardsBefore.length - 1];
-						const lastAboveIdx = parentItem.children.findIndex((c) => c.id === lastAboveId);
-						parentItem.children.splice(lastAboveIdx + 1, 0, this.draggedItem);
-					} else {
-						parentItem.children.unshift(this.draggedItem);
-					}
-				} else if (cardsBefore.length > 0) {
-					const lastAboveId = cardsBefore[cardsBefore.length - 1];
-					const lastAboveIdx = parentItem.children.findIndex((c) => c.id === lastAboveId);
-					if (lastAboveIdx >= 0) {
-						parentItem.children.splice(lastAboveIdx + 1, 0, this.draggedItem);
-					} else {
-						parentItem.children.push(this.draggedItem);
-					}
-				} else {
-					parentItem.children.unshift(this.draggedItem);
-				}
-			} else {
-				// Fallback: top level
-				targetLane.items.push(this.draggedItem);
-			}
-		}
-
-		this.removePlaceholder();
-		this.render();
-		this.scheduleSave();
+		handle.addEventListener('touchend', () => {
+			if (longPressTimer !== null) { window.clearTimeout(longPressTimer); longPressTimer = null; }
+			if (isDragging) { isDragging = false; el.removeClass('kanban-matsuo-touch-dragging'); this.draggedLane = null; }
+		}, { passive: true });
 	}
-
-	private buildFlatList(items: KanbanItem[], depth: number): { item: KanbanItem; depth: number }[] {
-		const result: { item: KanbanItem; depth: number }[] = [];
-		for (const item of items) {
-			if (!item.archived) {
-				result.push({ item, depth });
-				result.push(...this.buildFlatList(item.children, depth + 1));
-			}
-		}
-		return result;
-	}
-
-	private findTopLevelInsertIndex(lane: KanbanLane, cardsBefore: string[]): number {
-		if (cardsBefore.length === 0) return 0;
-
-		const lastAboveId = cardsBefore[cardsBefore.length - 1];
-
-		// Find which top-level item owns the last card above
-		for (let i = lane.items.length - 1; i >= 0; i--) {
-			const topItem = lane.items[i];
-			if (this.containsId(topItem, lastAboveId)) {
-				return i + 1;
-			}
-		}
-		return lane.items.length;
-	}
-
-	private containsId(item: KanbanItem, id: string): boolean {
-		if (item.id === id) return true;
-		return item.children.some((c) => this.containsId(c, id));
-	}
-
 
 	private removePlaceholder(): void {
 		if (this.dragPlaceholder) { this.dragPlaceholder.remove(); this.dragPlaceholder = null; }
 	}
 
 	private deleteItem(item: KanbanItem, lane: KanbanLane): void {
-		if (this.removeItemRecursive(lane.items, item)) {
+		if (removeItemRecursive(lane.items, item)) {
 			this.render();
 			this.scheduleSave();
 		}
-	}
-
-	/**
-	 * Recursively search and remove an item from a list or any children.
-	 */
-	private removeItemRecursive(items: KanbanItem[], target: KanbanItem): boolean {
-		const index = items.indexOf(target);
-		if (index >= 0) {
-			items.splice(index, 1);
-			return true;
-		}
-		for (const item of items) {
-			if (this.removeItemRecursive(item.children, target)) return true;
-		}
-		return false;
 	}
 
 	/**
@@ -2093,7 +1239,7 @@ export class KanbanView extends ItemView {
 	 * Removes it from its parent's children first.
 	 */
 	private promoteItem(item: KanbanItem, lane: KanbanLane): void {
-		this.removeItemRecursive(lane.items, item);
+		removeItemRecursive(lane.items, item);
 		lane.items.push(item);
 		this.render();
 		this.scheduleSave();
@@ -2167,7 +1313,7 @@ export class KanbanView extends ItemView {
 				if (targetLane.id === lane.id) continue;
 				menu.addItem((mi) => mi.setTitle(t('card.move-to', { lane: targetLane.title })).setIcon('arrow-right')
 					.onClick(() => {
-						this.removeItemRecursive(lane.items, item);
+						removeItemRecursive(lane.items, item);
 						targetLane.items.push(item);
 						this.render();
 						this.scheduleSave();
@@ -2251,283 +1397,5 @@ export class KanbanView extends ItemView {
 			const match = !q || (cardEl.textContent?.toLowerCase() || '').includes(q);
 			cardEl.toggleClass('kanban-matsuo-card-hidden', !match);
 		});
-	}
-}
-
-class WipLimitModal extends Modal {
-	private lane: KanbanLane;
-	private onSubmit: (limit: number) => void;
-	constructor(app: import('obsidian').App, lane: KanbanLane, onSubmit: (limit: number) => void) {
-		super(app); this.lane = lane; this.onSubmit = onSubmit;
-	}
-	onOpen(): void {
-		const { contentEl } = this; contentEl.empty();
-		contentEl.createEl('h3', { text: t('modal.wip-limit-title') });
-		new Setting(contentEl).setName(t('modal.wip-limit-name')).setDesc(t('modal.wip-limit-desc'))
-			.addText((text) => { text.setValue(String(this.lane.wipLimit || '')); text.inputEl.type = 'number'; text.inputEl.min = '0'; text.inputEl.setAttribute('aria-label', t('modal.wip-limit-label'));
-				text.inputEl.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter') this.submit(text.getValue()); }); });
-		new Setting(contentEl)
-			.addButton((btn) => btn.setButtonText(t('modal.save')).setCta().onClick(() => { const inp = contentEl.querySelector('input') as HTMLInputElement; this.submit(inp?.value || '0'); }))
-			.addButton((btn) => btn.setButtonText(t('modal.cancel')).onClick(() => this.close()));
-	}
-	private submit(value: string): void { this.onSubmit(parseInt(value, 10) || 0); this.close(); }
-	onClose(): void { this.contentEl.empty(); }
-}
-
-class ConfirmDeleteModal extends Modal {
-	private message: string;
-	private onConfirm: () => void;
-	private heading: string;
-	private confirmText: string;
-	constructor(app: import('obsidian').App, nameOrTitle: string, cardCount: number, onConfirm: () => void, heading?: string, confirmText?: string) {
-		super(app);
-		this.message = cardCount > 0
-			? t('lane.delete-confirm', { count: cardCount })
-			: `"${nameOrTitle}" — ${heading || t('modal.delete')}?`;
-		this.onConfirm = onConfirm;
-		this.heading = heading || t('modal.delete-lane-title');
-		this.confirmText = confirmText || t('modal.delete');
-	}
-	onOpen(): void {
-		const { contentEl } = this; contentEl.empty();
-		contentEl.createEl('h3', { text: this.heading });
-		contentEl.createEl('p', { text: this.message });
-		new Setting(contentEl)
-			.addButton((btn) => btn.setButtonText(this.confirmText).setWarning().onClick(() => { this.onConfirm(); this.close(); }))
-			.addButton((btn) => btn.setButtonText(t('modal.cancel')).onClick(() => this.close()));
-	}
-	onClose(): void { this.contentEl.empty(); }
-}
-
-/**
- * Modal for editing a card's title, tags, due date, and body via GUI.
- */
-class CardEditorModal extends Modal {
-	private item: KanbanItem;
-	private onSave: (item: KanbanItem) => void;
-
-	constructor(app: import('obsidian').App, item: KanbanItem, onSave: (item: KanbanItem) => void) {
-		super(app);
-		this.item = item;
-		this.onSave = onSave;
-	}
-
-	onOpen(): void {
-		const { contentEl } = this;
-		contentEl.empty();
-		contentEl.addClass('kanban-matsuo-card-editor');
-
-		contentEl.createEl('h3', { text: t('card-editor.title') });
-
-		// Title
-		let titleValue = this.item.title
-			.replace(/#[^\s#]+/g, '')
-			.replace(/@\{[^}]*\}/g, '')
-			.trim();
-		const titleSetting = new Setting(contentEl)
-			.setName(t('card-editor.card-title'));
-		const titleInput = titleSetting.controlEl.createEl('textarea', {
-			cls: 'kanban-matsuo-editor-textarea',
-			attr: {
-				placeholder: t('card-editor.card-title-placeholder'),
-				rows: '2',
-				'aria-label': t('card-editor.card-title'),
-			},
-		});
-		titleInput.value = titleValue;
-
-		// Tags
-		const tagsSetting = new Setting(contentEl)
-			.setName(t('card-editor.tags'))
-			.setDesc(t('card-editor.tags-desc'));
-		const tagsInput = tagsSetting.controlEl.createEl('input', {
-			cls: 'kanban-matsuo-editor-input',
-			attr: {
-				type: 'text',
-				placeholder: t('card-editor.tags-placeholder'),
-				'aria-label': t('card-editor.tags'),
-			},
-		});
-		(tagsInput as HTMLInputElement).value = this.item.tags.join(', ');
-
-		// Start date
-		const startSetting = new Setting(contentEl)
-			.setName(t('card-editor.start-date'));
-		const startInput = startSetting.controlEl.createEl('input', {
-			cls: 'kanban-matsuo-editor-input',
-			attr: { type: 'date', 'aria-label': t('card-editor.start-date') },
-		});
-		(startInput as HTMLInputElement).value = this.item.startDate || '';
-
-		// End date
-		const endSetting = new Setting(contentEl)
-			.setName(t('card-editor.end-date'));
-		const endInput = endSetting.controlEl.createEl('input', {
-			cls: 'kanban-matsuo-editor-input',
-			attr: { type: 'date', 'aria-label': t('card-editor.end-date') },
-		});
-		(endInput as HTMLInputElement).value = this.item.endDate || '';
-
-		// Body / description
-		const bodySetting = new Setting(contentEl)
-			.setName(t('card-editor.body'));
-		const bodyInput = bodySetting.controlEl.createEl('textarea', {
-			cls: 'kanban-matsuo-editor-textarea',
-			attr: {
-				placeholder: t('card-editor.body-placeholder'),
-				rows: '4',
-				'aria-label': t('card-editor.body'),
-			},
-		});
-		bodyInput.value = this.item.body || '';
-
-
-		// Buttons
-		new Setting(contentEl)
-			.addButton((btn) => {
-				btn.setButtonText(t('modal.save')).setCta().onClick(() => {
-					this.saveAndClose(titleInput, tagsInput as HTMLInputElement, startInput as HTMLInputElement, endInput as HTMLInputElement, bodyInput);
-				});
-			})
-			.addButton((btn) => {
-				btn.setButtonText(t('modal.cancel')).onClick(() => this.close());
-			});
-
-		// Focus title on open
-		titleInput.focus();
-	}
-
-	private saveAndClose(
-		titleEl: HTMLTextAreaElement,
-		tagsEl: HTMLInputElement,
-		startEl: HTMLInputElement,
-		endEl: HTMLInputElement,
-		bodyEl: HTMLTextAreaElement,
-	): void {
-		const title = titleEl.value.trim();
-		if (!title) return;
-
-		const tags = tagsEl.value
-			.split(',')
-			.map((s) => s.trim().replace(/^#/, ''))
-			.filter((s) => s.length > 0);
-		const startDate = startEl.value || null;
-		const endDate = endEl.value || null;
-
-		let fullTitle = title;
-		if (tags.length > 0) {
-			fullTitle += ' ' + tags.map((tag) => `#${tag}`).join(' ');
-		}
-		if (startDate && endDate) {
-			fullTitle += ` @{${startDate}~${endDate}}`;
-		} else if (endDate) {
-			fullTitle += ` @{${endDate}}`;
-		} else if (startDate) {
-			fullTitle += ` @{${startDate}~}`;
-		}
-
-		this.item.title = fullTitle;
-		this.item.tags = tags;
-		this.item.startDate = startDate;
-		this.item.endDate = endDate;
-		this.item.body = bodyEl.value.trim();
-
-		this.onSave(this.item);
-		this.close();
-	}
-
-	onClose(): void {
-		this.contentEl.empty();
-	}
-}
-
-/**
- * Modal showing archived cards with restore/delete options.
- */
-class ArchiveModal extends Modal {
-	private board: KanbanBoard;
-	private onUpdate: (board: KanbanBoard) => void;
-
-	constructor(app: import('obsidian').App, board: KanbanBoard, onUpdate: (board: KanbanBoard) => void) {
-		super(app);
-		this.board = board;
-		this.onUpdate = onUpdate;
-	}
-
-	onOpen(): void {
-		this.renderContent();
-	}
-
-	private renderContent(): void {
-		const { contentEl } = this;
-		contentEl.empty();
-		contentEl.addClass('kanban-matsuo-archive-modal');
-
-		contentEl.createEl('h3', { text: t('archive.title') });
-
-		// Collect all archived items with their lane info
-		const archived: { item: KanbanItem; lane: KanbanLane; parentList: KanbanItem[] }[] = [];
-		const collectArchived = (items: KanbanItem[], lane: KanbanLane) => {
-			for (const item of items) {
-				if (item.archived) archived.push({ item, lane, parentList: items });
-				collectArchived(item.children, lane);
-			}
-		};
-		for (const lane of this.board.lanes) {
-			collectArchived(lane.items, lane);
-		}
-
-		if (archived.length === 0) {
-			contentEl.createEl('p', { text: t('archive.empty'), cls: 'kanban-matsuo-archive-empty' });
-			return;
-		}
-
-		const list = contentEl.createDiv({ cls: 'kanban-matsuo-archive-list' });
-
-		for (const { item, lane, parentList } of archived) {
-			const row = list.createDiv({ cls: 'kanban-matsuo-archive-row' });
-
-			// Card info
-			const info = row.createDiv({ cls: 'kanban-matsuo-archive-info' });
-			const title = item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim();
-			info.createSpan({ cls: 'kanban-matsuo-archive-title', text: title });
-			info.createSpan({ cls: 'kanban-matsuo-archive-lane', text: lane.title });
-
-			// Tags
-			if (item.tags.length > 0) {
-				const tagsEl = info.createSpan({ cls: 'kanban-matsuo-archive-tags' });
-				tagsEl.setText(item.tags.map((tag) => `#${tag}`).join(' '));
-			}
-
-			// Buttons
-			const actions = row.createDiv({ cls: 'kanban-matsuo-archive-actions' });
-
-			// Restore button
-			const restoreBtn = actions.createEl('button', {
-				cls: 'kanban-matsuo-archive-restore-btn',
-				text: t('archive.restore'),
-			});
-			restoreBtn.addEventListener('click', () => {
-				item.archived = false;
-				this.onUpdate(this.board);
-				this.renderContent();
-			});
-
-			// Delete permanently
-			const deleteBtn = actions.createEl('button', {
-				cls: 'kanban-matsuo-archive-delete-btn',
-				text: t('archive.delete-permanent'),
-			});
-			deleteBtn.addEventListener('click', () => {
-				const idx = parentList.indexOf(item);
-				if (idx >= 0) parentList.splice(idx, 1);
-				this.onUpdate(this.board);
-				this.renderContent();
-			});
-		}
-	}
-
-	onClose(): void {
-		this.contentEl.empty();
 	}
 }

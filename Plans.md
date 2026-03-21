@@ -190,6 +190,14 @@
 
 ---
 
+## リファクタリング
+
+- [ ] モーダルクラスを modals.ts に分離 `cc:WIP`
+  - 依頼内容: kanban-view.ts の WipLimitModal, ConfirmDeleteModal, CardEditorModal, ArchiveModal を src/modals.ts に抽出
+  - 追加日時: 2026-03-22 00:00
+
+---
+
 ## 優先順位
 1. ~~**Phase 1-8**: 基本機能（完了済み）~~
 2. **Phase 9**: サブタスク・チェックリスト ★最優先
