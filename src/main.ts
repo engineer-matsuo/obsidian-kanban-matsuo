@@ -141,14 +141,6 @@ export default class KanbanPlugin extends Plugin {
 			},
 		});
 
-		// Command: create board from template
-		this.addCommand({
-			id: 'create-from-template',
-			name: t('command.create-from-template'),
-			callback: async () => {
-				await this.createNewBoard(true);
-			},
-		});
 
 		// Command: toggle board view
 		this.addCommand({
@@ -330,36 +322,20 @@ export default class KanbanPlugin extends Plugin {
 
 	/**
 	 * Build the initial content for a new board.
-	 * If `useTemplate` is true and `boardTemplatePath` is configured, reads that
-	 * file as the template. Falls back to generating a default board.
+	 * Create a new kanban board file.
 	 */
-	private async buildNewBoardContent(useTemplate: boolean): Promise<string> {
-		if (useTemplate && this.settings.boardTemplatePath) {
-			const templatePath = normalizePath(this.settings.boardTemplatePath);
-			const templateFile = this.app.vault.getAbstractFileByPath(templatePath);
-			if (templateFile instanceof TFile) {
-				return await this.app.vault.read(templateFile);
-			}
-			new Notice(`Template not found: ${templatePath}`);
-		}
-		const board = createBoard(this.settings.defaultLanes);
-		return boardToMarkdown(board);
-	}
-
-	/**
-	 * Create a new kanban board file, optionally using the configured template.
-	 */
-	private async createNewBoard(useTemplate = false): Promise<void> {
+	private async createNewBoard(): Promise<void> {
 		const activeFile = this.app.workspace.getActiveFile();
 		const folder = activeFile ? (activeFile.parent?.path ?? '') : '';
-		await this.createNewBoardInFolder(folder, useTemplate);
+		await this.createNewBoardInFolder(folder);
 	}
 
 	/**
 	 * Create a new kanban board in a specific folder path.
 	 */
-	private async createNewBoardInFolder(folder: string, useTemplate = false): Promise<void> {
-		const content = await this.buildNewBoardContent(useTemplate);
+	private async createNewBoardInFolder(folder: string): Promise<void> {
+		const board = createBoard(this.settings.defaultLanes);
+		const content = boardToMarkdown(board);
 
 		const baseName = t('board.kanban-board');
 		let fileName = `${baseName}.md`;

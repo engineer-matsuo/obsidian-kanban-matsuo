@@ -160,6 +160,8 @@ export const ja: Record<TranslationKey, string> = {
 	'wbs.col-days': '日数',
 	'wbs.col-progress': '%',
 	'wbs.days': '{{days}}日',
+	'wbs.filter-lanes': 'レーン表示',
+	'wbs.all-lanes': 'すべてのレーン',
 	'wbs.status-done': '完了',
 	'wbs.status-open': '未完了',
 };

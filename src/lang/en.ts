@@ -158,6 +158,8 @@ export const en = {
 	'wbs.col-days': 'Days',
 	'wbs.col-progress': '%',
 	'wbs.days': '{{days}}d',
+	'wbs.filter-lanes': 'Filter lanes',
+	'wbs.all-lanes': 'All lanes',
 	'wbs.status-done': 'Done',
 	'wbs.status-open': 'Open',
 };

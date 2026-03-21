@@ -158,7 +158,7 @@
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-s);
 	cursor: grab;
-	transition: box-shadow 150ms ease, border-color 150ms ease;
+	transition: box-shadow 150ms ease, border-color 150ms ease, transform 150ms ease, opacity 150ms ease;
 }
 
 .kanban-matsuo-card:hover {
@@ -171,6 +171,26 @@
 	outline-offset: 1px;
 }
 
+/* Drag ghost: compact pill */
+.kanban-matsuo-drag-ghost {
+	position: fixed;
+	top: -200px;
+	left: -200px;
+	padding: 6px 16px;
+	font-size: 12px;
+	font-family: inherit;
+	color: var(--text-on-accent);
+	background: var(--interactive-accent);
+	border-radius: 12px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+	white-space: nowrap;
+	max-width: 180px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	pointer-events: none;
+	z-index: 9999;
+}
+
 .kanban-matsuo-card-dragging {
 	opacity: 0;
 	height: 0 !important;
@@ -180,6 +200,7 @@
 	margin: 0 !important;
 	border: none !important;
 	overflow: hidden;
+	transition: none;
 }
 
 .kanban-matsuo-card-checked {
@@ -217,7 +238,7 @@
 	text-decoration: none;
 	cursor: pointer;
 	word-break: break-word;
-	display: block;
+	display: inline;
 }
 
 .kanban-matsuo-card-title-link:hover {
@@ -667,7 +688,7 @@ span.kanban-matsuo-subtask-done {
 	margin: var(--size-4-1) 0;
 	box-sizing: border-box;
 	margin-left: calc(var(--card-depth, 0) * 24px);
-	transition: margin-left 150ms ease, border-color 150ms ease, background 150ms ease;
+	transition: margin-left 200ms ease, border-color 200ms ease, background 200ms ease;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -840,6 +861,23 @@ span.kanban-matsuo-subtask-done {
 	color: var(--text-accent);
 	text-decoration: none;
 	cursor: pointer;
+}
+
+/* Gantt lane filter button */
+.kanban-matsuo-gantt-lane-filter {
+	flex-shrink: 0;
+	min-width: 24px;
+	min-height: 24px;
+	margin-left: auto;
+	color: var(--text-faint);
+}
+
+.kanban-matsuo-gantt-lane-filter:hover {
+	color: var(--text-normal);
+}
+
+.kanban-matsuo-gantt-lane-filter-active {
+	color: var(--interactive-accent);
 }
 
 .kanban-matsuo-gantt-task-link:hover {

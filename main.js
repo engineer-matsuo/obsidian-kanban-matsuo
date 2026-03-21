@@ -38,7 +38,6 @@ var DEFAULT_PLUGIN_SETTINGS = {
   showCheckboxes: true,
   autoSaveDelay: 500,
   language: "auto",
-  boardTemplatePath: "",
   newlineKey: "shift+enter",
   timezone: "local"
 };
@@ -435,6 +434,8 @@ var en = {
   "wbs.col-days": "Days",
   "wbs.col-progress": "%",
   "wbs.days": "{{days}}d",
+  "wbs.filter-lanes": "Filter lanes",
+  "wbs.all-lanes": "All lanes",
   "wbs.status-done": "Done",
   "wbs.status-open": "Open"
 };
@@ -580,6 +581,8 @@ var ja = {
   "wbs.col-days": "\u65E5\u6570",
   "wbs.col-progress": "%",
   "wbs.days": "{{days}}\u65E5",
+  "wbs.filter-lanes": "\u30EC\u30FC\u30F3\u8868\u793A",
+  "wbs.all-lanes": "\u3059\u3079\u3066\u306E\u30EC\u30FC\u30F3",
   "wbs.status-done": "\u5B8C\u4E86",
   "wbs.status-open": "\u672A\u5B8C\u4E86"
 };
@@ -636,6 +639,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.richMode = false;
     // WBS view toggle
     this.showWbs = true;
+    this.ganttHiddenLanes = /* @__PURE__ */ new Set();
     this.ganttDragging = false;
     this.ganttSortedIds = [];
     // External change detection (counter to handle concurrent saves)
@@ -739,7 +743,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     await this.app.vault.process(this.file, () => boardToMarkdown(board));
   }
   render() {
-    var _a, _b;
+    var _a, _b, _c, _d;
     if (!this.board) return;
     for (const lane of this.board.lanes) {
       for (const item of lane.items) {
@@ -747,8 +751,11 @@ var KanbanView = class extends import_obsidian.ItemView {
       }
     }
     const ganttWrap = this.contentEl.querySelector(".kanban-matsuo-gantt-wrapper");
-    const savedScrollLeft = (_a = ganttWrap == null ? void 0 : ganttWrap.scrollLeft) != null ? _a : 0;
-    const savedScrollTop = (_b = ganttWrap == null ? void 0 : ganttWrap.scrollTop) != null ? _b : 0;
+    const savedGanttScrollLeft = (_a = ganttWrap == null ? void 0 : ganttWrap.scrollLeft) != null ? _a : 0;
+    const savedGanttScrollTop = (_b = ganttWrap == null ? void 0 : ganttWrap.scrollTop) != null ? _b : 0;
+    const boardEl = this.contentEl.querySelector(".kanban-matsuo-board");
+    const savedBoardScrollLeft = (_c = boardEl == null ? void 0 : boardEl.scrollLeft) != null ? _c : 0;
+    const savedBoardScrollTop = (_d = boardEl == null ? void 0 : boardEl.scrollTop) != null ? _d : 0;
     this.contentEl.empty();
     this.contentEl.addClass("kanban-matsuo-container");
     this.contentEl.setAttribute("role", "application");
@@ -765,12 +772,19 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.renderAddLaneButton(this.boardEl);
     if (this.showWbs) {
       this.renderWbs(this.contentEl);
-      const newWrap = this.contentEl.querySelector(".kanban-matsuo-gantt-wrapper");
-      if (newWrap) {
-        newWrap.scrollLeft = savedScrollLeft;
-        newWrap.scrollTop = savedScrollTop;
-      }
     }
+    const board = this.boardEl;
+    requestAnimationFrame(() => {
+      board.scrollLeft = savedBoardScrollLeft;
+      board.scrollTop = savedBoardScrollTop;
+      if (this.showWbs) {
+        const newWrap = this.contentEl.querySelector(".kanban-matsuo-gantt-wrapper");
+        if (newWrap) {
+          newWrap.scrollLeft = savedGanttScrollLeft;
+          newWrap.scrollTop = savedGanttScrollTop;
+        }
+      }
+    });
   }
   renderToolbar(container) {
     const leftGroup = container.createDiv({ cls: "kanban-matsuo-toolbar-left" });
@@ -1053,12 +1067,6 @@ var KanbanView = class extends import_obsidian.ItemView {
         if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
         this.handleDragOver(e, listEl, lane);
       });
-      listEl.addEventListener("dragleave", () => {
-        var _a;
-        if (((_a = this.dragPlaceholder) == null ? void 0 : _a.parentElement) === listEl) {
-          this.removePlaceholder();
-        }
-      });
       listEl.addEventListener("drop", (e) => {
         if (!this.draggedItem) return;
         e.preventDefault();
@@ -1097,11 +1105,16 @@ var KanbanView = class extends import_obsidian.ItemView {
       this.draggedFromLane = lane;
       this.dragOriginX = e.clientX;
       this.dragOriginDepth = depth;
+      const ghost = document.body.createDiv({ cls: "kanban-matsuo-drag-ghost" });
+      const title = item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim();
+      ghost.setText(title.length > 20 ? title.slice(0, 20) + "\u2026" : title);
       if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("text/plain", item.id);
+        e.dataTransfer.setDragImage(ghost, 60, 15);
       }
       window.setTimeout(() => {
+        ghost.remove();
         cardEl.addClass("kanban-matsuo-card-dragging");
       }, 0);
     });
@@ -1139,10 +1152,16 @@ var KanbanView = class extends import_obsidian.ItemView {
       checkboxEl.checked = item.checked;
       checkboxEl.addEventListener("change", () => {
         item.checked = checkboxEl.checked;
+        cardEl.toggleClass("kanban-matsuo-card-checked", item.checked);
         if (item.checked && item.children.length > 0) {
           this.setAllChecked(item.children, true);
+          this.updateChildCheckboxesInDom(item.children);
         }
-        this.render();
+        this.updateProgressBarsInDom();
+        this.updateGanttBarStatesInDom(item);
+        if (item.children.length > 0) {
+          this.updateGanttChildBarStatesInDom(item.children);
+        }
         this.scheduleSave();
       });
     }
@@ -1316,10 +1335,77 @@ var KanbanView = class extends import_obsidian.ItemView {
       if (item.children.includes(target)) {
         return { parent: item, grandparentList: grandparentList || items };
       }
-      const found = this.findParentItem(item.children, target, items);
+      const found = this.findParentItem(item.children, target, item.children);
       if (found) return found;
     }
     return null;
+  }
+  /**
+   * Update child checkbox elements in the DOM without re-rendering.
+   */
+  updateChildCheckboxesInDom(children) {
+    var _a;
+    for (const child of children) {
+      const cardEl = (_a = this.boardEl) == null ? void 0 : _a.querySelector(`[data-item-id="${child.id}"]`);
+      if (cardEl) {
+        const cb = cardEl.querySelector(".kanban-matsuo-card-checkbox");
+        if (cb) cb.checked = child.checked;
+        cardEl.toggleClass("kanban-matsuo-card-checked", child.checked);
+      }
+      if (child.children.length > 0) this.updateChildCheckboxesInDom(child.children);
+    }
+  }
+  /**
+   * Update all progress bars in DOM without re-rendering.
+   */
+  updateProgressBarsInDom() {
+    var _a;
+    if (!this.board) return;
+    const allItems = this.getAllItemsFlat();
+    for (const item of allItems) {
+      if (item.children.length === 0) continue;
+      const cardEl = (_a = this.boardEl) == null ? void 0 : _a.querySelector(`[data-item-id="${item.id}"]`);
+      if (!cardEl) continue;
+      const progressText = cardEl.querySelector(".kanban-matsuo-progress-text");
+      const progressFill = cardEl.querySelector(".kanban-matsuo-progress-fill");
+      if (progressText && progressFill) {
+        const { done, total } = this.countChildren(item.children);
+        progressText.setText(t("subtask.progress", { done, total }));
+        const pct = total > 0 ? done / total * 100 : 0;
+        progressFill.style.setProperty("--progress-pct", `${pct}%`);
+      }
+    }
+  }
+  /**
+   * Update gantt bar done state for an item in DOM.
+   */
+  updateGanttBarStatesInDom(item) {
+    const row = this.contentEl.querySelector(`.kanban-matsuo-gantt-row[data-gantt-id="${item.id}"]`);
+    if (!row) return;
+    row.toggleClass("kanban-matsuo-wbs-done", item.checked);
+    const bar = row.querySelector(".kanban-matsuo-gantt-bar-continuous");
+    if (bar) bar.toggleClass("kanban-matsuo-gantt-bar-done", item.checked);
+  }
+  /**
+   * Update gantt bars for all children recursively.
+   */
+  updateGanttChildBarStatesInDom(children) {
+    for (const child of children) {
+      this.updateGanttBarStatesInDom(child);
+      if (child.children.length > 0) this.updateGanttChildBarStatesInDom(child.children);
+    }
+  }
+  getAllItemsFlat() {
+    if (!this.board) return [];
+    const result = [];
+    const collect = (items) => {
+      for (const item of items) {
+        result.push(item);
+        collect(item.children);
+      }
+    };
+    for (const lane of this.board.lanes) collect(lane.items);
+    return result;
   }
   setAllChecked(items, checked) {
     for (const item of items) {
@@ -1346,6 +1432,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     if (!this.board) return;
     const topItems = [];
     for (const lane of this.board.lanes) {
+      if (this.ganttHiddenLanes.has(lane.title)) continue;
       for (const item of lane.items) {
         if (!item.archived) topItems.push({ item, lane: lane.title });
       }
@@ -1422,7 +1509,15 @@ var KanbanView = class extends import_obsidian.ItemView {
       }
     });
     const hdr1 = wrapper.createDiv({ cls: "kanban-matsuo-gantt-row kanban-matsuo-gantt-hdr" });
-    hdr1.createDiv({ cls: "kanban-matsuo-gantt-left-cell kanban-matsuo-gantt-hdr-cell", text: t("wbs.title") });
+    const hdr1Left = hdr1.createDiv({ cls: "kanban-matsuo-gantt-left-cell kanban-matsuo-gantt-hdr-cell" });
+    hdr1Left.createSpan({ text: t("wbs.title"), cls: "kanban-matsuo-gantt-hdr-task" });
+    const laneFilterBtn = hdr1Left.createEl("button", {
+      cls: "kanban-matsuo-gantt-lane-filter clickable-icon",
+      attr: { "aria-label": t("wbs.filter-lanes"), "data-tooltip-position": "top" }
+    });
+    (0, import_obsidian.setIcon)(laneFilterBtn, "filter");
+    if (this.ganttHiddenLanes.size > 0) laneFilterBtn.addClass("kanban-matsuo-gantt-lane-filter-active");
+    laneFilterBtn.addEventListener("click", (e) => this.showGanttLaneFilterMenu(e));
     const hdr1Right = hdr1.createDiv({ cls: "kanban-matsuo-gantt-right-cells kanban-matsuo-gantt-hdr-cell" });
     let currentMonth = "";
     let monthDayCount = 0;
@@ -1617,6 +1712,33 @@ var KanbanView = class extends import_obsidian.ItemView {
       }
     } else if (bar) {
       bar.remove();
+    }
+  }
+  showGanttLaneFilterMenu(e) {
+    if (!this.board) return;
+    const menu = new import_obsidian.Menu();
+    menu.addItem((mi) => mi.setTitle(t("wbs.all-lanes")).setIcon("list").onClick(() => {
+      this.ganttHiddenLanes.clear();
+      this.render();
+    }));
+    menu.addSeparator();
+    for (const lane of this.board.lanes) {
+      const hidden = this.ganttHiddenLanes.has(lane.title);
+      menu.addItem((mi) => {
+        mi.setTitle(`${hidden ? "\u25CB " : "\u25CF "}${lane.title}`).setIcon(hidden ? "eye-off" : "eye").onClick(() => {
+          if (hidden) {
+            this.ganttHiddenLanes.delete(lane.title);
+          } else {
+            this.ganttHiddenLanes.add(lane.title);
+          }
+          this.render();
+        });
+      });
+    }
+    if (e instanceof MouseEvent) menu.showAtMouseEvent(e);
+    else if (e.target instanceof HTMLElement) {
+      const rect = e.target.getBoundingClientRect();
+      menu.showAtPosition({ x: rect.left, y: rect.bottom });
     }
   }
   startGanttAutoScroll(ev) {
@@ -1967,10 +2089,14 @@ var KanbanView = class extends import_obsidian.ItemView {
     if (!this.dragPlaceholder) {
       this.dragPlaceholder = listEl.createDiv({ cls: "kanban-matsuo-drop-placeholder" });
     }
-    if (afterEl) {
-      listEl.insertBefore(this.dragPlaceholder, afterEl);
-    } else {
-      listEl.appendChild(this.dragPlaceholder);
+    const currentNext = this.dragPlaceholder.nextElementSibling;
+    const needsMove = afterEl ? currentNext !== afterEl : this.dragPlaceholder.parentElement !== listEl || currentNext !== null;
+    if (needsMove) {
+      if (afterEl) {
+        listEl.insertBefore(this.dragPlaceholder, afterEl);
+      } else {
+        listEl.appendChild(this.dragPlaceholder);
+      }
     }
     this.dragPlaceholder.style.setProperty("--card-depth", `${targetDepth}`);
     if (targetDepth > this.dragOriginDepth) {
@@ -1989,7 +2115,15 @@ var KanbanView = class extends import_obsidian.ItemView {
     return depthStr ? parseInt(depthStr, 10) : 0;
   }
   getDragAfterElement(container, y) {
+    var _a;
     const cards = Array.from(container.querySelectorAll(".kanban-matsuo-card:not(.kanban-matsuo-card-dragging)"));
+    if (((_a = this.dragPlaceholder) == null ? void 0 : _a.parentElement) === container) {
+      const phRect = this.dragPlaceholder.getBoundingClientRect();
+      if (y >= phRect.top && y <= phRect.bottom) {
+        const next = this.dragPlaceholder.nextElementSibling;
+        return next instanceof HTMLElement && next.classList.contains("kanban-matsuo-card") ? next : null;
+      }
+    }
     return cards.reduce(
       (acc, card) => {
         const box = card.getBoundingClientRect();
@@ -2462,13 +2596,6 @@ var KanbanSettingTab = class extends import_obsidian2.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian2.Setting(containerEl).setName(t("settings.templates")).setHeading();
-    new import_obsidian2.Setting(containerEl).setName(t("settings.board-template")).setDesc(t("settings.board-template-desc")).addText(
-      (text) => text.setPlaceholder("templates/kanban-template.md").setValue(this.plugin.settings.boardTemplatePath).onChange(async (value) => {
-        this.plugin.settings.boardTemplatePath = value.trim();
-        await this.plugin.saveSettings();
-      })
-    );
   }
 };
 
@@ -2553,13 +2680,6 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
       name: t("command.create-new-board"),
       callback: async () => {
         await this.createNewBoard();
-      }
-    });
-    this.addCommand({
-      id: "create-from-template",
-      name: t("command.create-from-template"),
-      callback: async () => {
-        await this.createNewBoard(true);
       }
     });
     this.addCommand({
@@ -2711,35 +2831,20 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
   }
   /**
    * Build the initial content for a new board.
-   * If `useTemplate` is true and `boardTemplatePath` is configured, reads that
-   * file as the template. Falls back to generating a default board.
+   * Create a new kanban board file.
    */
-  async buildNewBoardContent(useTemplate) {
-    if (useTemplate && this.settings.boardTemplatePath) {
-      const templatePath = (0, import_obsidian3.normalizePath)(this.settings.boardTemplatePath);
-      const templateFile = this.app.vault.getAbstractFileByPath(templatePath);
-      if (templateFile instanceof import_obsidian3.TFile) {
-        return await this.app.vault.read(templateFile);
-      }
-      new import_obsidian3.Notice(`Template not found: ${templatePath}`);
-    }
-    const board = createBoard(this.settings.defaultLanes);
-    return boardToMarkdown(board);
-  }
-  /**
-   * Create a new kanban board file, optionally using the configured template.
-   */
-  async createNewBoard(useTemplate = false) {
+  async createNewBoard() {
     var _a, _b;
     const activeFile = this.app.workspace.getActiveFile();
     const folder = activeFile ? (_b = (_a = activeFile.parent) == null ? void 0 : _a.path) != null ? _b : "" : "";
-    await this.createNewBoardInFolder(folder, useTemplate);
+    await this.createNewBoardInFolder(folder);
   }
   /**
    * Create a new kanban board in a specific folder path.
    */
-  async createNewBoardInFolder(folder, useTemplate = false) {
-    const content = await this.buildNewBoardContent(useTemplate);
+  async createNewBoardInFolder(folder) {
+    const board = createBoard(this.settings.defaultLanes);
+    const content = boardToMarkdown(board);
     const baseName = t("board.kanban-board");
     let fileName = `${baseName}.md`;
     let counter = 1;

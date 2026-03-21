@@ -38,7 +38,6 @@ export interface KanbanPluginSettings {
 	showCheckboxes: boolean;
 	autoSaveDelay: number;
 	language: 'auto' | 'en' | 'ja';
-	boardTemplatePath: string;
 	newlineKey: 'shift+enter' | 'ctrl+enter' | 'alt+enter';
 	timezone: string;
 }
@@ -51,7 +50,6 @@ export const DEFAULT_PLUGIN_SETTINGS: KanbanPluginSettings = {
 	showCheckboxes: true,
 	autoSaveDelay: 500,
 	language: 'auto',
-	boardTemplatePath: '',
 	newlineKey: 'shift+enter',
 	timezone: 'local',
 };

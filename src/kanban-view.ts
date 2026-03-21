@@ -53,6 +53,7 @@ export class KanbanView extends ItemView {
 
 	// WBS view toggle
 	private showWbs = true;
+	private ganttHiddenLanes = new Set<string>();
 	private ganttDragging = false;
 	private ganttSortedIds: string[] = [];
 
@@ -179,8 +180,12 @@ export class KanbanView extends ItemView {
 
 		// Save scroll positions before re-render
 		const ganttWrap = this.contentEl.querySelector('.kanban-matsuo-gantt-wrapper') as HTMLElement | null;
-		const savedScrollLeft = ganttWrap?.scrollLeft ?? 0;
-		const savedScrollTop = ganttWrap?.scrollTop ?? 0;
+		const savedGanttScrollLeft = ganttWrap?.scrollLeft ?? 0;
+		const savedGanttScrollTop = ganttWrap?.scrollTop ?? 0;
+
+		const boardEl = this.contentEl.querySelector('.kanban-matsuo-board') as HTMLElement | null;
+		const savedBoardScrollLeft = boardEl?.scrollLeft ?? 0;
+		const savedBoardScrollTop = boardEl?.scrollTop ?? 0;
 
 		this.contentEl.empty();
 		this.contentEl.addClass('kanban-matsuo-container');
@@ -204,11 +209,18 @@ export class KanbanView extends ItemView {
 		// WBS section
 		if (this.showWbs) {
 			this.renderWbs(this.contentEl);
-
-			// Restore scroll positions
-			const newWrap = this.contentEl.querySelector('.kanban-matsuo-gantt-wrapper') as HTMLElement | null;
-			if (newWrap) { newWrap.scrollLeft = savedScrollLeft; newWrap.scrollTop = savedScrollTop; }
 		}
+
+		// Restore all scroll positions after DOM is ready
+		const board = this.boardEl;
+		requestAnimationFrame(() => {
+			board.scrollLeft = savedBoardScrollLeft;
+			board.scrollTop = savedBoardScrollTop;
+			if (this.showWbs) {
+				const newWrap = this.contentEl.querySelector('.kanban-matsuo-gantt-wrapper') as HTMLElement | null;
+				if (newWrap) { newWrap.scrollLeft = savedGanttScrollLeft; newWrap.scrollTop = savedGanttScrollTop; }
+			}
+		});
 	}
 
 	private renderToolbar(container: HTMLElement): void {
@@ -508,12 +520,9 @@ export class KanbanView extends ItemView {
 				if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
 				this.handleDragOver(e, listEl, lane);
 			});
-			listEl.addEventListener('dragleave', () => {
-				// Only remove placeholder if leaving our own lane
-				if (this.dragPlaceholder?.parentElement === listEl) {
-					this.removePlaceholder();
-				}
-			});
+			// dragleave: do nothing (dragend handles cleanup)
+			// Removing placeholder on dragleave causes flicker because
+			// dragleave fires when entering child elements.
 			listEl.addEventListener('drop', (e) => {
 				if (!this.draggedItem) return;
 				e.preventDefault();
@@ -557,9 +566,20 @@ export class KanbanView extends ItemView {
 			this.draggedItem = item; this.draggedFromLane = lane;
 			this.dragOriginX = e.clientX;
 			this.dragOriginDepth = depth;
-			if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.id); }
-			// Collapse card after browser captures drag image
-			window.setTimeout(() => { cardEl.addClass('kanban-matsuo-card-dragging'); }, 0);
+
+			// Create small drag ghost
+			const ghost = document.body.createDiv({ cls: 'kanban-matsuo-drag-ghost' });
+			const title = item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim();
+			ghost.setText(title.length > 20 ? title.slice(0, 20) + '…' : title);
+			if (e.dataTransfer) {
+				e.dataTransfer.effectAllowed = 'move';
+				e.dataTransfer.setData('text/plain', item.id);
+				e.dataTransfer.setDragImage(ghost, 60, 15);
+			}
+			window.setTimeout(() => {
+				ghost.remove();
+				cardEl.addClass('kanban-matsuo-card-dragging');
+			}, 0);
 		});
 		cardEl.addEventListener('dragend', () => {
 			cardEl.removeClass('kanban-matsuo-card-dragging');
@@ -593,11 +613,24 @@ export class KanbanView extends ItemView {
 			(checkboxEl as HTMLInputElement).checked = item.checked;
 			checkboxEl.addEventListener('change', () => {
 				item.checked = (checkboxEl as HTMLInputElement).checked;
+				cardEl.toggleClass('kanban-matsuo-card-checked', item.checked);
+
 				// If parent checked, check all children recursively
 				if (item.checked && item.children.length > 0) {
 					this.setAllChecked(item.children, true);
+					// Update child checkboxes in DOM
+					this.updateChildCheckboxesInDom(item.children);
 				}
-				this.render();
+
+				// Update progress bar on parent card if exists
+				this.updateProgressBarsInDom();
+
+				// Update gantt chart bars (done state)
+				this.updateGanttBarStatesInDom(item);
+				if (item.children.length > 0) {
+					this.updateGanttChildBarStatesInDom(item.children);
+				}
+
 				this.scheduleSave();
 			});
 		}
@@ -816,10 +849,80 @@ export class KanbanView extends ItemView {
 			if (item.children.includes(target)) {
 				return { parent: item, grandparentList: grandparentList || items };
 			}
-			const found = this.findParentItem(item.children, target, items);
+			const found = this.findParentItem(item.children, target, item.children);
 			if (found) return found;
 		}
 		return null;
+	}
+
+	/**
+	 * Update child checkbox elements in the DOM without re-rendering.
+	 */
+	private updateChildCheckboxesInDom(children: KanbanItem[]): void {
+		for (const child of children) {
+			const cardEl = this.boardEl?.querySelector(`[data-item-id="${child.id}"]`) as HTMLElement | null;
+			if (cardEl) {
+				const cb = cardEl.querySelector('.kanban-matsuo-card-checkbox') as HTMLInputElement | null;
+				if (cb) cb.checked = child.checked;
+				cardEl.toggleClass('kanban-matsuo-card-checked', child.checked);
+			}
+			if (child.children.length > 0) this.updateChildCheckboxesInDom(child.children);
+		}
+	}
+
+	/**
+	 * Update all progress bars in DOM without re-rendering.
+	 */
+	private updateProgressBarsInDom(): void {
+		if (!this.board) return;
+		const allItems = this.getAllItemsFlat();
+		for (const item of allItems) {
+			if (item.children.length === 0) continue;
+			const cardEl = this.boardEl?.querySelector(`[data-item-id="${item.id}"]`) as HTMLElement | null;
+			if (!cardEl) continue;
+			const progressText = cardEl.querySelector('.kanban-matsuo-progress-text') as HTMLElement | null;
+			const progressFill = cardEl.querySelector('.kanban-matsuo-progress-fill') as HTMLElement | null;
+			if (progressText && progressFill) {
+				const { done, total } = this.countChildren(item.children);
+				progressText.setText(t('subtask.progress', { done, total }));
+				const pct = total > 0 ? (done / total) * 100 : 0;
+				progressFill.style.setProperty('--progress-pct', `${pct}%`);
+			}
+		}
+	}
+
+	/**
+	 * Update gantt bar done state for an item in DOM.
+	 */
+	private updateGanttBarStatesInDom(item: KanbanItem): void {
+		const row = this.contentEl.querySelector(`.kanban-matsuo-gantt-row[data-gantt-id="${item.id}"]`) as HTMLElement | null;
+		if (!row) return;
+		row.toggleClass('kanban-matsuo-wbs-done', item.checked);
+		const bar = row.querySelector('.kanban-matsuo-gantt-bar-continuous') as HTMLElement | null;
+		if (bar) bar.toggleClass('kanban-matsuo-gantt-bar-done', item.checked);
+	}
+
+	/**
+	 * Update gantt bars for all children recursively.
+	 */
+	private updateGanttChildBarStatesInDom(children: KanbanItem[]): void {
+		for (const child of children) {
+			this.updateGanttBarStatesInDom(child);
+			if (child.children.length > 0) this.updateGanttChildBarStatesInDom(child.children);
+		}
+	}
+
+	private getAllItemsFlat(): KanbanItem[] {
+		if (!this.board) return [];
+		const result: KanbanItem[] = [];
+		const collect = (items: KanbanItem[]) => {
+			for (const item of items) {
+				result.push(item);
+				collect(item.children);
+			}
+		};
+		for (const lane of this.board.lanes) collect(lane.items);
+		return result;
 	}
 
 	private setAllChecked(items: KanbanItem[], checked: boolean): void {
@@ -853,6 +956,7 @@ export class KanbanView extends ItemView {
 		// Flatten: top-level items with children inline (parent+children always together)
 		const topItems: { item: KanbanItem; lane: string }[] = [];
 		for (const lane of this.board.lanes) {
+			if (this.ganttHiddenLanes.has(lane.title)) continue;
 			for (const item of lane.items) {
 				if (!item.archived) topItems.push({ item, lane: lane.title });
 			}
@@ -947,7 +1051,16 @@ export class KanbanView extends ItemView {
 
 		// HEADER ROW 1: month (each cell = 28px, label on first day of month)
 		const hdr1 = wrapper.createDiv({ cls: 'kanban-matsuo-gantt-row kanban-matsuo-gantt-hdr' });
-		hdr1.createDiv({ cls: 'kanban-matsuo-gantt-left-cell kanban-matsuo-gantt-hdr-cell', text: t('wbs.title') });
+		const hdr1Left = hdr1.createDiv({ cls: 'kanban-matsuo-gantt-left-cell kanban-matsuo-gantt-hdr-cell' });
+		hdr1Left.createSpan({ text: t('wbs.title'), cls: 'kanban-matsuo-gantt-hdr-task' });
+		// Lane filter button
+		const laneFilterBtn = hdr1Left.createEl('button', {
+			cls: 'kanban-matsuo-gantt-lane-filter clickable-icon',
+			attr: { 'aria-label': t('wbs.filter-lanes'), 'data-tooltip-position': 'top' },
+		});
+		setIcon(laneFilterBtn, 'filter');
+		if (this.ganttHiddenLanes.size > 0) laneFilterBtn.addClass('kanban-matsuo-gantt-lane-filter-active');
+		laneFilterBtn.addEventListener('click', (e) => this.showGanttLaneFilterMenu(e));
 		const hdr1Right = hdr1.createDiv({ cls: 'kanban-matsuo-gantt-right-cells kanban-matsuo-gantt-hdr-cell' });
 		// Build month blocks: each block spans the days in that month
 		let currentMonth = '';
@@ -1190,6 +1303,40 @@ export class KanbanView extends ItemView {
 	 * Auto-scroll the gantt wrapper when mouse is near edges during drag.
 	 */
 	private ganttAutoScrollTimer: number | null = null;
+
+	private showGanttLaneFilterMenu(e: MouseEvent | Event): void {
+		if (!this.board) return;
+		const menu = new Menu();
+
+		// Show all
+		menu.addItem((mi) => mi.setTitle(t('wbs.all-lanes')).setIcon('list').onClick(() => {
+			this.ganttHiddenLanes.clear();
+			this.render();
+		}));
+
+		menu.addSeparator();
+
+		// Each lane as toggle
+		for (const lane of this.board.lanes) {
+			const hidden = this.ganttHiddenLanes.has(lane.title);
+			menu.addItem((mi) => {
+				mi.setTitle(`${hidden ? '○ ' : '● '}${lane.title}`).setIcon(hidden ? 'eye-off' : 'eye').onClick(() => {
+					if (hidden) {
+						this.ganttHiddenLanes.delete(lane.title);
+					} else {
+						this.ganttHiddenLanes.add(lane.title);
+					}
+					this.render();
+				});
+			});
+		}
+
+		if (e instanceof MouseEvent) menu.showAtMouseEvent(e);
+		else if (e.target instanceof HTMLElement) {
+			const rect = e.target.getBoundingClientRect();
+			menu.showAtPosition({ x: rect.left, y: rect.bottom });
+		}
+	}
 
 	private startGanttAutoScroll(ev: MouseEvent): void {
 		const wrapper = this.contentEl.querySelector('.kanban-matsuo-gantt-wrapper') as HTMLElement | null;
@@ -1575,11 +1722,15 @@ export class KanbanView extends ItemView {
 			this.dragPlaceholder = listEl.createDiv({ cls: 'kanban-matsuo-drop-placeholder' });
 		}
 
-		// Position
-		if (afterEl) {
-			listEl.insertBefore(this.dragPlaceholder, afterEl);
-		} else {
-			listEl.appendChild(this.dragPlaceholder);
+		// Position: only move if actually needed
+		const currentNext = this.dragPlaceholder.nextElementSibling;
+		const needsMove = afterEl ? currentNext !== afterEl : this.dragPlaceholder.parentElement !== listEl || currentNext !== null;
+		if (needsMove) {
+			if (afterEl) {
+				listEl.insertBefore(this.dragPlaceholder, afterEl);
+			} else {
+				listEl.appendChild(this.dragPlaceholder);
+			}
 		}
 
 		// Indent visual + label
@@ -1603,6 +1754,18 @@ export class KanbanView extends ItemView {
 
 	private getDragAfterElement(container: HTMLElement, y: number): HTMLElement | null {
 		const cards = Array.from(container.querySelectorAll('.kanban-matsuo-card:not(.kanban-matsuo-card-dragging)')) as HTMLElement[];
+
+		// If placeholder already exists, check if cursor is still within it
+		// If so, return current position (no change) to prevent oscillation
+		if (this.dragPlaceholder?.parentElement === container) {
+			const phRect = this.dragPlaceholder.getBoundingClientRect();
+			if (y >= phRect.top && y <= phRect.bottom) {
+				// Cursor is inside placeholder - return current next sibling
+				const next = this.dragPlaceholder.nextElementSibling;
+				return next instanceof HTMLElement && next.classList.contains('kanban-matsuo-card') ? next : null;
+			}
+		}
+
 		return cards.reduce<{ offset: number; el: HTMLElement | null }>(
 			(acc, card) => {
 				const box = card.getBoundingClientRect();
