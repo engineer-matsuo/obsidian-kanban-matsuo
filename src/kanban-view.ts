@@ -1795,23 +1795,54 @@ export class KanbanView extends ItemView {
 		const flatList = this.buildFlatList(targetLane.items, 0);
 
 		// Find index in flat list where we're inserting
+		// Exclude the dragged card itself from cardsBefore
+		const draggedId = this.draggedItem.id;
 		const cardsBefore: string[] = [];
 		if (this.dragPlaceholder) {
 			for (const child of Array.from(listEl.children)) {
 				if (child === this.dragPlaceholder) break;
-				if (child.classList.contains('kanban-matsuo-card')) {
+				if (child.classList.contains('kanban-matsuo-card') && !child.classList.contains('kanban-matsuo-card-dragging')) {
 					const id = child.getAttribute('data-item-id');
-					if (id) cardsBefore.push(id);
+					if (id && id !== draggedId) cardsBefore.push(id);
+				}
+			}
+		}
+
+		// Also find the card AFTER the placeholder
+		let cardAfterId: string | null = null;
+		if (this.dragPlaceholder) {
+			let found = false;
+			for (const child of Array.from(listEl.children)) {
+				if (child === this.dragPlaceholder) { found = true; continue; }
+				if (found && child.classList.contains('kanban-matsuo-card') && !child.classList.contains('kanban-matsuo-card-dragging')) {
+					cardAfterId = child.getAttribute('data-item-id');
+					break;
 				}
 			}
 		}
 
 		if (targetDepth === 0) {
 			// Insert at top level
-			const insertIdx = this.findTopLevelInsertIndex(targetLane, cardsBefore);
-			targetLane.items.splice(insertIdx, 0, this.draggedItem);
+			if (cardAfterId) {
+				// Find the top-level item that contains cardAfterId, insert before it
+				const afterEntry = flatList.find((f) => f.item.id === cardAfterId);
+				if (afterEntry && afterEntry.depth === 0) {
+					const idx = targetLane.items.indexOf(afterEntry.item);
+					if (idx >= 0) {
+						targetLane.items.splice(idx, 0, this.draggedItem);
+					} else {
+						targetLane.items.push(this.draggedItem);
+					}
+				} else {
+					const insertIdx = this.findTopLevelInsertIndex(targetLane, cardsBefore);
+					targetLane.items.splice(insertIdx, 0, this.draggedItem);
+				}
+			} else {
+				const insertIdx = this.findTopLevelInsertIndex(targetLane, cardsBefore);
+				targetLane.items.splice(insertIdx, 0, this.draggedItem);
+			}
 		} else {
-			// Find the parent: walk backwards through cards above to find one at depth = targetDepth - 1
+			// Find the parent: walk backwards through cards above to find one at depth < targetDepth
 			let parentItem: KanbanItem | null = null;
 			for (let i = cardsBefore.length - 1; i >= 0; i--) {
 				const entry = flatList.find((f) => f.item.id === cardsBefore[i]);
@@ -1821,15 +1852,43 @@ export class KanbanView extends ItemView {
 				}
 			}
 
+			// If no card above, the parent is determined by the card after
+			if (!parentItem && cardAfterId) {
+				const afterEntry = flatList.find((f) => f.item.id === cardAfterId);
+				if (afterEntry) {
+					// Find the parent of cardAfter at depth = targetDepth - 1
+					for (const f of flatList) {
+						if (f.depth === targetDepth - 1 && f.item.children.some((c) => c.id === cardAfterId)) {
+							parentItem = f.item;
+							break;
+						}
+					}
+				}
+			}
+
 			if (parentItem) {
-				// Find insert position within parent's children
-				// By default append at end, but if there are cards below from same parent, insert before
-				const lastAboveId = cardsBefore[cardsBefore.length - 1];
-				const lastAboveIdx = parentItem.children.findIndex((c) => c.id === lastAboveId);
-				if (lastAboveIdx >= 0) {
-					parentItem.children.splice(lastAboveIdx + 1, 0, this.draggedItem);
+				// Insert at correct position within parent's children
+				if (cardAfterId) {
+					const afterIdx = parentItem.children.findIndex((c) => c.id === cardAfterId);
+					if (afterIdx >= 0) {
+						parentItem.children.splice(afterIdx, 0, this.draggedItem);
+					} else if (cardsBefore.length > 0) {
+						const lastAboveId = cardsBefore[cardsBefore.length - 1];
+						const lastAboveIdx = parentItem.children.findIndex((c) => c.id === lastAboveId);
+						parentItem.children.splice(lastAboveIdx + 1, 0, this.draggedItem);
+					} else {
+						parentItem.children.unshift(this.draggedItem);
+					}
+				} else if (cardsBefore.length > 0) {
+					const lastAboveId = cardsBefore[cardsBefore.length - 1];
+					const lastAboveIdx = parentItem.children.findIndex((c) => c.id === lastAboveId);
+					if (lastAboveIdx >= 0) {
+						parentItem.children.splice(lastAboveIdx + 1, 0, this.draggedItem);
+					} else {
+						parentItem.children.push(this.draggedItem);
+					}
 				} else {
-					parentItem.children.push(this.draggedItem);
+					parentItem.children.unshift(this.draggedItem);
 				}
 			} else {
 				// Fallback: top level

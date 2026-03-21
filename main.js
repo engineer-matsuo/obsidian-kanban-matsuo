@@ -2140,19 +2140,49 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.removeItemRecursive(this.draggedFromLane.items, this.draggedItem);
     const targetDepth = isCrossLane ? 0 : this.dragPlaceholder ? parseInt(this.dragPlaceholder.style.getPropertyValue("--card-depth") || "0", 10) : 0;
     const flatList = this.buildFlatList(targetLane.items, 0);
+    const draggedId = this.draggedItem.id;
     const cardsBefore = [];
     if (this.dragPlaceholder) {
       for (const child of Array.from(listEl.children)) {
         if (child === this.dragPlaceholder) break;
-        if (child.classList.contains("kanban-matsuo-card")) {
+        if (child.classList.contains("kanban-matsuo-card") && !child.classList.contains("kanban-matsuo-card-dragging")) {
           const id = child.getAttribute("data-item-id");
-          if (id) cardsBefore.push(id);
+          if (id && id !== draggedId) cardsBefore.push(id);
+        }
+      }
+    }
+    let cardAfterId = null;
+    if (this.dragPlaceholder) {
+      let found = false;
+      for (const child of Array.from(listEl.children)) {
+        if (child === this.dragPlaceholder) {
+          found = true;
+          continue;
+        }
+        if (found && child.classList.contains("kanban-matsuo-card") && !child.classList.contains("kanban-matsuo-card-dragging")) {
+          cardAfterId = child.getAttribute("data-item-id");
+          break;
         }
       }
     }
     if (targetDepth === 0) {
-      const insertIdx = this.findTopLevelInsertIndex(targetLane, cardsBefore);
-      targetLane.items.splice(insertIdx, 0, this.draggedItem);
+      if (cardAfterId) {
+        const afterEntry = flatList.find((f) => f.item.id === cardAfterId);
+        if (afterEntry && afterEntry.depth === 0) {
+          const idx = targetLane.items.indexOf(afterEntry.item);
+          if (idx >= 0) {
+            targetLane.items.splice(idx, 0, this.draggedItem);
+          } else {
+            targetLane.items.push(this.draggedItem);
+          }
+        } else {
+          const insertIdx = this.findTopLevelInsertIndex(targetLane, cardsBefore);
+          targetLane.items.splice(insertIdx, 0, this.draggedItem);
+        }
+      } else {
+        const insertIdx = this.findTopLevelInsertIndex(targetLane, cardsBefore);
+        targetLane.items.splice(insertIdx, 0, this.draggedItem);
+      }
     } else {
       let parentItem = null;
       for (let i = cardsBefore.length - 1; i >= 0; i--) {
@@ -2162,13 +2192,39 @@ var KanbanView = class extends import_obsidian.ItemView {
           break;
         }
       }
+      if (!parentItem && cardAfterId) {
+        const afterEntry = flatList.find((f) => f.item.id === cardAfterId);
+        if (afterEntry) {
+          for (const f of flatList) {
+            if (f.depth === targetDepth - 1 && f.item.children.some((c) => c.id === cardAfterId)) {
+              parentItem = f.item;
+              break;
+            }
+          }
+        }
+      }
       if (parentItem) {
-        const lastAboveId = cardsBefore[cardsBefore.length - 1];
-        const lastAboveIdx = parentItem.children.findIndex((c) => c.id === lastAboveId);
-        if (lastAboveIdx >= 0) {
-          parentItem.children.splice(lastAboveIdx + 1, 0, this.draggedItem);
+        if (cardAfterId) {
+          const afterIdx = parentItem.children.findIndex((c) => c.id === cardAfterId);
+          if (afterIdx >= 0) {
+            parentItem.children.splice(afterIdx, 0, this.draggedItem);
+          } else if (cardsBefore.length > 0) {
+            const lastAboveId = cardsBefore[cardsBefore.length - 1];
+            const lastAboveIdx = parentItem.children.findIndex((c) => c.id === lastAboveId);
+            parentItem.children.splice(lastAboveIdx + 1, 0, this.draggedItem);
+          } else {
+            parentItem.children.unshift(this.draggedItem);
+          }
+        } else if (cardsBefore.length > 0) {
+          const lastAboveId = cardsBefore[cardsBefore.length - 1];
+          const lastAboveIdx = parentItem.children.findIndex((c) => c.id === lastAboveId);
+          if (lastAboveIdx >= 0) {
+            parentItem.children.splice(lastAboveIdx + 1, 0, this.draggedItem);
+          } else {
+            parentItem.children.push(this.draggedItem);
+          }
         } else {
-          parentItem.children.push(this.draggedItem);
+          parentItem.children.unshift(this.draggedItem);
         }
       } else {
         targetLane.items.push(this.draggedItem);
