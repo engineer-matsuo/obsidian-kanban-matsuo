@@ -328,7 +328,8 @@ export class KanbanView extends ItemView {
 		this.showMenuAtEvent(menu, e);
 	}
 
-	private isItemVisible(item: KanbanItem): boolean {
+	/** Check if item itself matches the current filter. */
+	private itemMatchesFilter(item: KanbanItem): boolean {
 		if (item.archived) return false;
 		if (this.filterMode === 'none') return true;
 		if (this.filterMode === 'tag') return item.tags.includes(this.filterValue);
@@ -340,22 +341,24 @@ export class KanbanView extends ItemView {
 				case 'week': {
 					if (!item.endDate) return false;
 					const now = new Date(today + 'T00:00:00');
-					const day = now.getDay(); // 0=Sun,1=Mon,...,6=Sat
+					const day = now.getDay();
 					const diffToMon = day === 0 ? -6 : 1 - day;
 					const monday = new Date(now); monday.setDate(now.getDate() + diffToMon);
 					const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
-					const fmt = (d: Date) => {
-						const y = d.getFullYear();
-						const m = String(d.getMonth() + 1).padStart(2, '0');
-						const dd = String(d.getDate()).padStart(2, '0');
-						return `${y}-${m}-${dd}`;
-					};
+					const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 					return item.endDate >= fmt(monday) && item.endDate <= fmt(sunday);
 				}
 				case 'none': return item.endDate === null;
 			}
 		}
 		return true;
+	}
+
+	/** Check if item or any descendant matches the filter. */
+	private isItemVisible(item: KanbanItem): boolean {
+		if (item.archived) return false;
+		if (this.itemMatchesFilter(item)) return true;
+		return item.children.some((child) => this.isItemVisible(child));
 	}
 
 	private renderLane(container: HTMLElement, lane: KanbanLane): void {
@@ -902,10 +905,12 @@ export class KanbanView extends ItemView {
 				return '-';
 			})() });
 
-			// Right: date cells
+			// Right: date cells + continuous bar overlay
 			const rightCells = row.createDiv({ cls: 'kanban-matsuo-gantt-right-cells' });
 			const isParent = item.children.length > 0;
+			const cellWidth = 28;
 
+			// Render grid cells (background: today, weekend)
 			for (let di = 0; di < dates.length; di++) {
 				const d = dates[di];
 				const cell = rightCells.createDiv({
@@ -916,46 +921,55 @@ export class KanbanView extends ItemView {
 				const dow = new Date(d + 'T00:00:00').getDay();
 				if (dow === 0 || dow === 6) cell.addClass('kanban-matsuo-gantt-weekend');
 
-				const start = item.startDate || item.endDate;
-				const end = item.endDate || item.startDate;
-				const inRange = start && end && d >= start && d <= end;
+				// Click empty cell to set date (leaf tasks only)
+				if (!isParent) {
+					const start = item.startDate || item.endDate;
+					const end = item.endDate || item.startDate;
+					const inRange = start && end && d >= start && d <= end;
+					if (!inRange) {
+						cell.addEventListener('click', () => {
+							if (!item.startDate && !item.endDate) { item.startDate = d; item.endDate = d; }
+							else if (!item.startDate) { item.startDate = d < item.endDate! ? d : item.endDate; if (d > item.endDate!) item.endDate = d; }
+							else if (!item.endDate) { item.endDate = d > item.startDate ? d : item.startDate; if (d < item.startDate) item.startDate = d; }
+							this.updateItemTitleDates(item);
+							this.scheduleSave();
+							this.render();
+						});
+					}
+				}
+			}
 
-				if (inRange) {
-					const bar = cell.createDiv({ cls: 'kanban-matsuo-gantt-bar' });
+			// Render continuous bar overlay
+			const start = item.startDate || item.endDate;
+			const end = item.endDate || item.startDate;
+			if (start && end) {
+				const startIdx = dates.indexOf(start);
+				const endIdx = dates.indexOf(end);
+				if (startIdx >= 0 && endIdx >= 0) {
+					const barLeft = startIdx * cellWidth;
+					const barWidth = (endIdx - startIdx + 1) * cellWidth;
+
+					const bar = rightCells.createDiv({ cls: 'kanban-matsuo-gantt-bar-continuous' });
+					bar.style.setProperty('left', `${barLeft}px`);
+					bar.style.setProperty('width', `${barWidth}px`);
+
 					if (item.checked) bar.addClass('kanban-matsuo-gantt-bar-done');
 					if (isParent) bar.addClass('kanban-matsuo-gantt-bar-parent');
-					if (d === start) {
-						bar.setAttribute('data-label', item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim());
-					}
 
-					// Only leaf tasks (no children) can be dragged/resized
+					const label = item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim();
+					bar.setAttribute('data-label', label);
+
 					if (!isParent) {
-						if (d === start) {
-							bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-left' });
-						}
-						if (d === end) {
-							bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-right' });
-						}
+						// Resize handles
+						bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-left' });
+						bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-right' });
+
 						this.setupGanttBarDrag(bar, item, dates);
-						if (d === start) {
-							const lh = bar.querySelector('.kanban-matsuo-gantt-handle-left') as HTMLElement;
-							if (lh) this.setupGanttResize(lh, item, dates, 'start');
-						}
-						if (d === end) {
-							const rh = bar.querySelector('.kanban-matsuo-gantt-handle-right') as HTMLElement;
-							if (rh) this.setupGanttResize(rh, item, dates, 'end');
-						}
+						const lh = bar.querySelector('.kanban-matsuo-gantt-handle-left') as HTMLElement;
+						if (lh) this.setupGanttResize(lh, item, dates, 'start');
+						const rh = bar.querySelector('.kanban-matsuo-gantt-handle-right') as HTMLElement;
+						if (rh) this.setupGanttResize(rh, item, dates, 'end');
 					}
-				} else if (!isParent) {
-					// Only leaf tasks can have dates set by clicking
-					cell.addEventListener('click', () => {
-						if (!item.startDate && !item.endDate) { item.startDate = d; item.endDate = d; }
-						else if (!item.startDate) { item.startDate = d < item.endDate! ? d : item.endDate; if (d > item.endDate!) item.endDate = d; }
-						else if (!item.endDate) { item.endDate = d > item.startDate ? d : item.startDate; if (d < item.startDate) item.startDate = d; }
-						this.updateItemTitleDates(item);
-						this.scheduleSave();
-						this.render();
-					});
 				}
 			}
 		}
@@ -1009,40 +1023,30 @@ export class KanbanView extends ItemView {
 		) as HTMLElement | null;
 		if (!row) return;
 
-		const ganttCells = Array.from(row.querySelectorAll('.kanban-matsuo-gantt-cell'));
+		const rightCells = row.querySelector('.kanban-matsuo-gantt-right-cells') as HTMLElement | null;
+		if (!rightCells) return;
+
+		// Update continuous bar position/width
+		let bar = rightCells.querySelector('.kanban-matsuo-gantt-bar-continuous') as HTMLElement | null;
 		const start = item.startDate || item.endDate;
 		const end = item.endDate || item.startDate;
+		const cellWidth = 28;
 
-		ganttCells.forEach((cell, i) => {
-			const d = dates[i];
-			if (!d) return;
-			const existing = cell.querySelector('.kanban-matsuo-gantt-bar');
-			const inRange = start && end && d >= start && d <= end;
-
-			if (inRange && !existing) {
-				const bar = (cell as HTMLElement).createDiv({ cls: 'kanban-matsuo-gantt-bar' });
-				if (item.checked) bar.addClass('kanban-matsuo-gantt-bar-done');
-				if (d === start) {
-					const label = item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim();
-					bar.setAttribute('data-label', label);
-					bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-left' });
+		if (start && end) {
+			const startIdx = dates.indexOf(start);
+			const endIdx = dates.indexOf(end);
+			if (startIdx >= 0 && endIdx >= 0) {
+				if (!bar) {
+					bar = rightCells.createDiv({ cls: 'kanban-matsuo-gantt-bar-continuous' });
 				}
-				if (d === end) {
-					bar.createDiv({ cls: 'kanban-matsuo-gantt-handle kanban-matsuo-gantt-handle-right' });
-				}
-			} else if (!inRange && existing) {
-				existing.remove();
-			} else if (inRange && existing) {
-				// Update label position
-				const bar = existing as HTMLElement;
-				if (d === start) {
-					const label = item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim();
-					bar.setAttribute('data-label', label);
-				} else {
-					bar.removeAttribute('data-label');
-				}
+				bar.style.setProperty('left', `${startIdx * cellWidth}px`);
+				bar.style.setProperty('width', `${(endIdx - startIdx + 1) * cellWidth}px`);
+			} else if (bar) {
+				bar.remove();
 			}
-		});
+		} else if (bar) {
+			bar.remove();
+		}
 	}
 
 	private setupGanttBarDrag(bar: HTMLElement, item: KanbanItem, dates: string[]): void {

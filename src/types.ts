@@ -45,7 +45,7 @@ export interface KanbanPluginSettings {
 
 export const DEFAULT_PLUGIN_SETTINGS: KanbanPluginSettings = {
 	defaultLanes: ['To Do', 'In Progress', 'Done'],
-	laneWidth: 272,
+	laneWidth: 500,
 	showTags: true,
 	showDates: true,
 	showCheckboxes: true,
@@ -57,7 +57,7 @@ export const DEFAULT_PLUGIN_SETTINGS: KanbanPluginSettings = {
 };
 
 export const DEFAULT_BOARD_SETTINGS: KanbanBoardSettings = {
-	laneWidth: 272,
+	laneWidth: 500,
 	showTags: true,
 	showDates: true,
 	showCheckboxes: true,

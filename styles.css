@@ -72,8 +72,8 @@
 	display: flex;
 	flex-direction: column;
 	flex-shrink: 0;
-	width: var(--lane-width, 272px);
-	min-width: var(--lane-width, 272px);
+	width: var(--lane-width, 500px);
+	min-width: var(--lane-width, 500px);
 	background: var(--background-secondary);
 	border-radius: var(--radius-m);
 	border: 1px solid var(--background-modifier-border);
@@ -786,6 +786,7 @@ span.kanban-matsuo-subtask-done {
 /* Right cells: date columns */
 .kanban-matsuo-gantt-right-cells {
 	display: flex;
+	position: relative;
 }
 
 /* Body area: no own scroll, wrapper handles it */
@@ -822,7 +823,7 @@ span.kanban-matsuo-subtask-done {
 	background: color-mix(in srgb, var(--interactive-accent) 10%, color-mix(in srgb, var(--background-modifier-border) 30%, transparent));
 }
 
-/* Gantt bar */
+/* Gantt bar (per-cell, legacy) */
 .kanban-matsuo-gantt-bar {
 	position: absolute;
 	top: 4px;
@@ -834,17 +835,31 @@ span.kanban-matsuo-subtask-done {
 	opacity: 0.8;
 }
 
-.kanban-matsuo-gantt-bar-done {
+/* Continuous gantt bar overlay */
+.kanban-matsuo-gantt-bar-continuous {
+	position: absolute;
+	top: 4px;
+	bottom: 4px;
+	background: var(--interactive-accent);
+	border-radius: 4px;
+	opacity: 0.85;
+	z-index: 1;
+	cursor: grab;
+}
+
+.kanban-matsuo-gantt-bar-done,
+.kanban-matsuo-gantt-bar-continuous.kanban-matsuo-gantt-bar-done {
 	background: var(--text-muted);
 	opacity: 0.5;
 }
 
 /* Parent task bar: summary bar style (thinner, different color) */
-.kanban-matsuo-gantt-bar-parent {
+.kanban-matsuo-gantt-bar-parent,
+.kanban-matsuo-gantt-bar-continuous.kanban-matsuo-gantt-bar-parent {
 	background: var(--text-muted);
 	opacity: 0.6;
-	top: 2px;
-	bottom: 2px;
+	top: 8px;
+	bottom: 8px;
 	border-radius: 2px;
 	cursor: default;
 }
@@ -853,11 +868,13 @@ span.kanban-matsuo-subtask-done {
 	cursor: grab;
 }
 
-.kanban-matsuo-gantt-bar:active {
+.kanban-matsuo-gantt-bar:active,
+.kanban-matsuo-gantt-bar-continuous:active {
 	cursor: grabbing;
 	opacity: 1;
 }
 
+.kanban-matsuo-gantt-bar-continuous[data-label]::after,
 .kanban-matsuo-gantt-bar[data-label]::after {
 	content: attr(data-label);
 	position: absolute;
