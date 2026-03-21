@@ -628,9 +628,8 @@ var KanbanView = class extends import_obsidian.ItemView {
     // Touch drag state
     this.touchStartY = 0;
     this.touchStartX = 0;
-    // Filter state
-    this.filterMode = "none";
-    this.filterValue = "";
+    // Filter state: multiple AND conditions
+    this.filters = [];
     // Rich card display toggle
     this.richMode = false;
     // WBS view toggle
@@ -782,8 +781,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       }
     });
     searchInput.addEventListener("input", () => {
-      this.filterMode = "none";
-      this.filterValue = "";
+      this.filters = [];
       this.filterCards(searchInput.value);
     });
     const tagFilterBtn = leftGroup.createEl("button", {
@@ -798,30 +796,30 @@ var KanbanView = class extends import_obsidian.ItemView {
     });
     (0, import_obsidian.setIcon)(dateFilterBtn, "calendar");
     dateFilterBtn.addEventListener("click", (e) => this.showDateFilterMenu(e));
-    if (this.filterMode !== "none") {
-      let filterLabel = "";
-      if (this.filterMode === "tag") {
-        filterLabel = `#${this.filterValue}`;
-      } else if (this.filterMode === "date") {
-        const dateLabels = {
-          "overdue": t("filter.overdue"),
-          "today": t("filter.today"),
-          "week": t("filter.this-week"),
-          "none": t("filter.no-date")
-        };
-        filterLabel = dateLabels[this.filterValue] || this.filterValue;
+    if (this.filters.length > 0) {
+      const dateLabels = {
+        "overdue": t("filter.overdue"),
+        "today": t("filter.today"),
+        "week": t("filter.this-week"),
+        "none": t("filter.no-date")
+      };
+      for (let fi = 0; fi < this.filters.length; fi++) {
+        const f = this.filters[fi];
+        let label = "";
+        if (f.mode === "tag") label = `#${f.value}`;
+        else if (f.mode === "date") label = dateLabels[f.value] || f.value;
+        const badge = leftGroup.createSpan({ cls: "kanban-matsuo-filter-badge", text: label });
+        const clearBtn = badge.createEl("button", {
+          cls: "kanban-matsuo-filter-clear-btn clickable-icon",
+          attr: { "aria-label": t("filter.clear") }
+        });
+        (0, import_obsidian.setIcon)(clearBtn, "x");
+        const idx = fi;
+        clearBtn.addEventListener("click", () => {
+          this.filters.splice(idx, 1);
+          this.render();
+        });
       }
-      const filterBadge = leftGroup.createSpan({ cls: "kanban-matsuo-filter-badge", text: filterLabel });
-      const clearBtn = filterBadge.createEl("button", {
-        cls: "kanban-matsuo-filter-clear-btn clickable-icon",
-        attr: { "aria-label": t("filter.clear"), "data-tooltip-position": "top" }
-      });
-      (0, import_obsidian.setIcon)(clearBtn, "x");
-      clearBtn.addEventListener("click", () => {
-        this.filterMode = "none";
-        this.filterValue = "";
-        this.render();
-      });
     }
     const rightGroup = container.createDiv({ cls: "kanban-matsuo-toolbar-right" });
     const richToggle = rightGroup.createEl("button", {
@@ -849,26 +847,36 @@ var KanbanView = class extends import_obsidian.ItemView {
       this.render();
     });
   }
+  collectTags(items, tags) {
+    for (const item of items) {
+      if (item.archived) continue;
+      item.tags.forEach((tag) => tags.add(tag));
+      this.collectTags(item.children, tags);
+    }
+  }
   showTagFilterMenu(e) {
     if (!this.board) return;
     const menu = new import_obsidian.Menu();
     const allTags = /* @__PURE__ */ new Set();
     for (const lane of this.board.lanes) {
-      for (const item of lane.items) {
-        if (!item.archived) item.tags.forEach((tag) => allTags.add(tag));
-      }
+      this.collectTags(lane.items, allTags);
     }
     menu.addItem((mi) => mi.setTitle(t("filter.all")).setIcon("list").onClick(() => {
-      this.filterMode = "none";
-      this.filterValue = "";
+      this.filters = this.filters.filter((f) => f.mode !== "tag");
       this.render();
     }));
     for (const tag of allTags) {
-      menu.addItem((mi) => mi.setTitle(`#${tag}`).setIcon("tag").onClick(() => {
-        this.filterMode = "tag";
-        this.filterValue = tag;
-        this.render();
-      }));
+      const active = this.filters.some((f) => f.mode === "tag" && f.value === tag);
+      menu.addItem((mi) => {
+        mi.setTitle(`${active ? "\u2713 " : ""}#${tag}`).setIcon("tag").onClick(() => {
+          if (active) {
+            this.filters = this.filters.filter((f) => !(f.mode === "tag" && f.value === tag));
+          } else {
+            this.filters.push({ mode: "tag", value: tag });
+          }
+          this.render();
+        });
+      });
     }
     this.showMenuAtEvent(menu, e);
   }
@@ -882,43 +890,56 @@ var KanbanView = class extends import_obsidian.ItemView {
       [t("filter.no-date"), "calendar-off", "none"]
     ];
     for (const [title, icon, val] of items) {
-      menu.addItem((mi) => mi.setTitle(title).setIcon(icon).onClick(() => {
-        this.filterMode = val ? "date" : "none";
-        this.filterValue = val;
+      if (!val) {
+        menu.addItem((mi) => mi.setTitle(title).setIcon(icon).onClick(() => {
+          this.filters = this.filters.filter((f) => f.mode !== "date");
+          this.render();
+        }));
+        continue;
+      }
+      const active = this.filters.some((f) => f.mode === "date" && f.value === val);
+      menu.addItem((mi) => mi.setTitle(`${active ? "\u2713 " : ""}${title}`).setIcon(icon).onClick(() => {
+        if (active) {
+          this.filters = this.filters.filter((f) => !(f.mode === "date" && f.value === val));
+        } else {
+          this.filters.push({ mode: "date", value: val });
+        }
         this.render();
       }));
     }
     this.showMenuAtEvent(menu, e);
   }
-  /** Check if item itself matches the current filter. */
+  /** Check if item itself matches ALL active filters (AND). */
   itemMatchesFilter(item) {
     if (item.archived) return false;
-    if (this.filterMode === "none") return true;
-    if (this.filterMode === "tag") return item.tags.includes(this.filterValue);
-    if (this.filterMode === "date") {
-      const today = this.getToday();
-      switch (this.filterValue) {
-        case "overdue":
-          return item.endDate !== null && item.endDate < today;
-        case "today":
-          return item.endDate === today;
-        case "week": {
-          if (!item.endDate) return false;
-          const now = /* @__PURE__ */ new Date(today + "T00:00:00");
-          const day = now.getDay();
-          const diffToMon = day === 0 ? -6 : 1 - day;
-          const monday = new Date(now);
-          monday.setDate(now.getDate() + diffToMon);
-          const sunday = new Date(monday);
-          sunday.setDate(monday.getDate() + 6);
-          const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-          return item.endDate >= fmt(monday) && item.endDate <= fmt(sunday);
+    if (this.filters.length === 0) return true;
+    return this.filters.every((f) => {
+      if (f.mode === "tag") return item.tags.includes(f.value);
+      if (f.mode === "date") {
+        const today = this.getToday();
+        switch (f.value) {
+          case "overdue":
+            return item.endDate !== null && item.endDate < today;
+          case "today":
+            return item.endDate === today;
+          case "week": {
+            if (!item.endDate) return false;
+            const now = /* @__PURE__ */ new Date(today + "T00:00:00");
+            const day = now.getDay();
+            const diffToMon = day === 0 ? -6 : 1 - day;
+            const monday = new Date(now);
+            monday.setDate(now.getDate() + diffToMon);
+            const sunday = new Date(monday);
+            sunday.setDate(monday.getDate() + 6);
+            const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+            return item.endDate >= fmt(monday) && item.endDate <= fmt(sunday);
+          }
+          case "none":
+            return item.endDate === null;
         }
-        case "none":
-          return item.endDate === null;
       }
-    }
-    return true;
+      return true;
+    });
   }
   /** Check if item or any descendant matches the filter. */
   isItemVisible(item) {
@@ -1104,6 +1125,10 @@ var KanbanView = class extends import_obsidian.ItemView {
       e.preventDefault();
       this.showCardMenu(e, item, lane);
     });
+    cardEl.addEventListener("click", (e) => {
+      if (e.target.closest("a, input, button")) return;
+      this.highlightWbsRow(item.id);
+    });
     if (this.board.settings.showCheckboxes) {
       const checkboxEl = cardEl.createEl("input", {
         cls: "kanban-matsuo-card-checkbox task-list-item-checkbox",
@@ -1138,8 +1163,9 @@ var KanbanView = class extends import_obsidian.ItemView {
         const tagSpan = tagsEl.createSpan({ cls: "kanban-matsuo-tag", text: `#${tag}` });
         tagSpan.addEventListener("click", (e) => {
           e.stopPropagation();
-          this.filterMode = "tag";
-          this.filterValue = tag;
+          if (!this.filters.some((f) => f.mode === "tag" && f.value === tag)) {
+            this.filters.push({ mode: "tag", value: tag });
+          }
           this.render();
         });
       }
@@ -1582,6 +1608,36 @@ var KanbanView = class extends import_obsidian.ItemView {
         wrapper.scrollLeft += scrollDx;
       }, 16);
     }
+  }
+  /**
+   * Scroll WBS to the row matching itemId and flash-highlight it.
+   */
+  highlightWbsRow(itemId) {
+    const row = this.contentEl.querySelector(
+      `.kanban-matsuo-gantt-row[data-gantt-id="${itemId}"]`
+    );
+    if (!row) return;
+    const wrapper = this.contentEl.querySelector(".kanban-matsuo-gantt-wrapper");
+    if (!wrapper) return;
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const targetTop = wrapper.scrollTop + (rowRect.top - wrapperRect.top) - wrapperRect.height / 2 + rowRect.height / 2;
+    let targetLeft = wrapper.scrollLeft;
+    const bar = row.querySelector(".kanban-matsuo-gantt-bar-continuous");
+    if (bar) {
+      const barLeft = parseInt(bar.style.getPropertyValue("left") || "0", 10);
+      const leftColWidth = 300;
+      targetLeft = Math.max(0, barLeft - leftColWidth - 50);
+    }
+    wrapper.scrollTo({
+      left: targetLeft,
+      top: Math.max(0, targetTop),
+      behavior: "smooth"
+    });
+    row.addClass("kanban-matsuo-gantt-row-highlight");
+    window.setTimeout(() => {
+      row.removeClass("kanban-matsuo-gantt-row-highlight");
+    }, 2e3);
   }
   stopGanttAutoScroll() {
     if (this.ganttAutoScrollTimer !== null) {

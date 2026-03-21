@@ -890,6 +890,21 @@ span.kanban-matsuo-subtask-done {
 	background: color-mix(in srgb, var(--interactive-accent) 10%, color-mix(in srgb, var(--background-modifier-border) 30%, transparent));
 }
 
+/* WBS row highlight (flash on card click) */
+.kanban-matsuo-gantt-row-highlight {
+	animation: kanban-matsuo-flash 2s ease-out;
+}
+
+.kanban-matsuo-gantt-row-highlight .kanban-matsuo-gantt-left-cell {
+	animation: kanban-matsuo-flash 2s ease-out;
+}
+
+@keyframes kanban-matsuo-flash {
+	0% { background: var(--interactive-accent); }
+	30% { background: color-mix(in srgb, var(--interactive-accent) 40%, var(--background-primary)); }
+	100% { background: var(--background-primary); }
+}
+
 /* Gantt bar (per-cell, legacy) */
 .kanban-matsuo-gantt-bar {
 	position: absolute;

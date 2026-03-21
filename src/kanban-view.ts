@@ -45,9 +45,8 @@ export class KanbanView extends ItemView {
 	private touchStartY = 0;
 	private touchStartX = 0;
 
-	// Filter state
-	private filterMode: FilterMode = 'none';
-	private filterValue = '';
+	// Filter state: multiple AND conditions
+	private filters: { mode: FilterMode; value: string }[] = [];
 
 	// Rich card display toggle
 	private richMode = false;
@@ -225,8 +224,7 @@ export class KanbanView extends ItemView {
 			},
 		});
 		searchInput.addEventListener('input', () => {
-			this.filterMode = 'none';
-			this.filterValue = '';
+			this.filters = [];
 			this.filterCards(searchInput.value);
 		});
 
@@ -244,33 +242,32 @@ export class KanbanView extends ItemView {
 		setIcon(dateFilterBtn, 'calendar');
 		dateFilterBtn.addEventListener('click', (e) => this.showDateFilterMenu(e));
 
-		if (this.filterMode !== 'none') {
-			// Filter label
-			let filterLabel = '';
-			if (this.filterMode === 'tag') {
-				filterLabel = `#${this.filterValue}`;
-			} else if (this.filterMode === 'date') {
-				const dateLabels: Record<string, string> = {
-					'overdue': t('filter.overdue'),
-					'today': t('filter.today'),
-					'week': t('filter.this-week'),
-					'none': t('filter.no-date'),
-				};
-				filterLabel = dateLabels[this.filterValue] || this.filterValue;
+		if (this.filters.length > 0) {
+			const dateLabels: Record<string, string> = {
+				'overdue': t('filter.overdue'),
+				'today': t('filter.today'),
+				'week': t('filter.this-week'),
+				'none': t('filter.no-date'),
+			};
+
+			for (let fi = 0; fi < this.filters.length; fi++) {
+				const f = this.filters[fi];
+				let label = '';
+				if (f.mode === 'tag') label = `#${f.value}`;
+				else if (f.mode === 'date') label = dateLabels[f.value] || f.value;
+
+				const badge = leftGroup.createSpan({ cls: 'kanban-matsuo-filter-badge', text: label });
+				const clearBtn = badge.createEl('button', {
+					cls: 'kanban-matsuo-filter-clear-btn clickable-icon',
+					attr: { 'aria-label': t('filter.clear') },
+				});
+				setIcon(clearBtn, 'x');
+				const idx = fi;
+				clearBtn.addEventListener('click', () => {
+					this.filters.splice(idx, 1);
+					this.render();
+				});
 			}
-
-			const filterBadge = leftGroup.createSpan({ cls: 'kanban-matsuo-filter-badge', text: filterLabel });
-
-			const clearBtn = filterBadge.createEl('button', {
-				cls: 'kanban-matsuo-filter-clear-btn clickable-icon',
-				attr: { 'aria-label': t('filter.clear'), 'data-tooltip-position': 'top' },
-			});
-			setIcon(clearBtn, 'x');
-			clearBtn.addEventListener('click', () => {
-				this.filterMode = 'none';
-				this.filterValue = '';
-				this.render();
-			});
 		}
 
 		// Right group: rich mode toggle
@@ -304,23 +301,37 @@ export class KanbanView extends ItemView {
 		});
 	}
 
+	private collectTags(items: KanbanItem[], tags: Set<string>): void {
+		for (const item of items) {
+			if (item.archived) continue;
+			item.tags.forEach((tag) => tags.add(tag));
+			this.collectTags(item.children, tags);
+		}
+	}
+
 	private showTagFilterMenu(e: MouseEvent | Event): void {
 		if (!this.board) return;
 		const menu = new Menu();
 		const allTags = new Set<string>();
 		for (const lane of this.board.lanes) {
-			for (const item of lane.items) {
-				if (!item.archived) item.tags.forEach((tag) => allTags.add(tag));
-			}
+			this.collectTags(lane.items, allTags);
 		}
 
 		menu.addItem((mi) => mi.setTitle(t('filter.all')).setIcon('list').onClick(() => {
-			this.filterMode = 'none'; this.filterValue = ''; this.render();
+			this.filters = this.filters.filter((f) => f.mode !== 'tag'); this.render();
 		}));
 		for (const tag of allTags) {
-			menu.addItem((mi) => mi.setTitle(`#${tag}`).setIcon('tag').onClick(() => {
-				this.filterMode = 'tag'; this.filterValue = tag; this.render();
-			}));
+			const active = this.filters.some((f) => f.mode === 'tag' && f.value === tag);
+			menu.addItem((mi) => {
+				mi.setTitle(`${active ? '✓ ' : ''}#${tag}`).setIcon('tag').onClick(() => {
+				if (active) {
+					this.filters = this.filters.filter((f) => !(f.mode === 'tag' && f.value === tag));
+				} else {
+					this.filters.push({ mode: 'tag', value: tag });
+				}
+				this.render();
+			});
+			});
 		}
 		this.showMenuAtEvent(menu, e);
 	}
@@ -335,39 +346,53 @@ export class KanbanView extends ItemView {
 			[t('filter.no-date'), 'calendar-off', 'none'],
 		];
 		for (const [title, icon, val] of items) {
-			menu.addItem((mi) => mi.setTitle(title).setIcon(icon).onClick(() => {
-				this.filterMode = val ? 'date' : 'none';
-				this.filterValue = val;
+			if (!val) {
+				menu.addItem((mi) => mi.setTitle(title).setIcon(icon).onClick(() => {
+					this.filters = this.filters.filter((f) => f.mode !== 'date');
+					this.render();
+				}));
+				continue;
+			}
+			const active = this.filters.some((f) => f.mode === 'date' && f.value === val);
+			menu.addItem((mi) => mi.setTitle(`${active ? '✓ ' : ''}${title}`).setIcon(icon).onClick(() => {
+				if (active) {
+					this.filters = this.filters.filter((f) => !(f.mode === 'date' && f.value === val));
+				} else {
+					this.filters.push({ mode: 'date', value: val });
+				}
 				this.render();
 			}));
 		}
 		this.showMenuAtEvent(menu, e);
 	}
 
-	/** Check if item itself matches the current filter. */
+	/** Check if item itself matches ALL active filters (AND). */
 	private itemMatchesFilter(item: KanbanItem): boolean {
 		if (item.archived) return false;
-		if (this.filterMode === 'none') return true;
-		if (this.filterMode === 'tag') return item.tags.includes(this.filterValue);
-		if (this.filterMode === 'date') {
-			const today = this.getToday();
-			switch (this.filterValue) {
-				case 'overdue': return item.endDate !== null && item.endDate < today;
-				case 'today': return item.endDate === today;
-				case 'week': {
-					if (!item.endDate) return false;
-					const now = new Date(today + 'T00:00:00');
-					const day = now.getDay();
-					const diffToMon = day === 0 ? -6 : 1 - day;
-					const monday = new Date(now); monday.setDate(now.getDate() + diffToMon);
-					const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
-					const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-					return item.endDate >= fmt(monday) && item.endDate <= fmt(sunday);
+		if (this.filters.length === 0) return true;
+
+		return this.filters.every((f) => {
+			if (f.mode === 'tag') return item.tags.includes(f.value);
+			if (f.mode === 'date') {
+				const today = this.getToday();
+				switch (f.value) {
+					case 'overdue': return item.endDate !== null && item.endDate < today;
+					case 'today': return item.endDate === today;
+					case 'week': {
+						if (!item.endDate) return false;
+						const now = new Date(today + 'T00:00:00');
+						const day = now.getDay();
+						const diffToMon = day === 0 ? -6 : 1 - day;
+						const monday = new Date(now); monday.setDate(now.getDate() + diffToMon);
+						const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+						const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+						return item.endDate >= fmt(monday) && item.endDate <= fmt(sunday);
+					}
+					case 'none': return item.endDate === null;
 				}
-				case 'none': return item.endDate === null;
 			}
-		}
-		return true;
+			return true;
+		});
 	}
 
 	/** Check if item or any descendant matches the filter. */
@@ -553,6 +578,12 @@ export class KanbanView extends ItemView {
 		});
 		cardEl.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showCardMenu(e, item, lane); });
 
+		// Click card body → highlight in WBS
+		cardEl.addEventListener('click', (e) => {
+			if ((e.target as HTMLElement).closest('a, input, button')) return;
+			this.highlightWbsRow(item.id);
+		});
+
 		// Checkbox
 		if (this.board!.settings.showCheckboxes) {
 			const checkboxEl = cardEl.createEl('input', {
@@ -592,7 +623,7 @@ export class KanbanView extends ItemView {
 			const tagsEl = bodyEl.createDiv({ cls: 'kanban-matsuo-card-tags' });
 			for (const tag of item.tags) {
 				const tagSpan = tagsEl.createSpan({ cls: 'kanban-matsuo-tag', text: `#${tag}` });
-				tagSpan.addEventListener('click', (e) => { e.stopPropagation(); this.filterMode = 'tag'; this.filterValue = tag; this.render(); });
+				tagSpan.addEventListener('click', (e) => { e.stopPropagation(); if (!this.filters.some((f) => f.mode === 'tag' && f.value === tag)) { this.filters.push({ mode: 'tag', value: tag }); } this.render(); });
 			}
 		}
 
@@ -1145,6 +1176,48 @@ export class KanbanView extends ItemView {
 				wrapper.scrollLeft += scrollDx;
 			}, 16);
 		}
+	}
+
+	/**
+	 * Scroll WBS to the row matching itemId and flash-highlight it.
+	 */
+	private highlightWbsRow(itemId: string): void {
+		const row = this.contentEl.querySelector(
+			`.kanban-matsuo-gantt-row[data-gantt-id="${itemId}"]`
+		) as HTMLElement | null;
+		if (!row) return;
+
+		const wrapper = this.contentEl.querySelector('.kanban-matsuo-gantt-wrapper') as HTMLElement | null;
+		if (!wrapper) return;
+
+		// Calculate target scroll position (both axes at once)
+		const wrapperRect = wrapper.getBoundingClientRect();
+		const rowRect = row.getBoundingClientRect();
+
+		// Vertical: center the row
+		const targetTop = wrapper.scrollTop + (rowRect.top - wrapperRect.top) - wrapperRect.height / 2 + rowRect.height / 2;
+
+		// Horizontal: scroll to bar start
+		let targetLeft = wrapper.scrollLeft;
+		const bar = row.querySelector('.kanban-matsuo-gantt-bar-continuous') as HTMLElement | null;
+		if (bar) {
+			const barLeft = parseInt(bar.style.getPropertyValue('left') || '0', 10);
+			const leftColWidth = 300;
+			targetLeft = Math.max(0, barLeft - leftColWidth - 50);
+		}
+
+		// Single smooth scroll for both axes
+		wrapper.scrollTo({
+			left: targetLeft,
+			top: Math.max(0, targetTop),
+			behavior: 'smooth',
+		});
+
+		// Flash highlight
+		row.addClass('kanban-matsuo-gantt-row-highlight');
+		window.setTimeout(() => {
+			row.removeClass('kanban-matsuo-gantt-row-highlight');
+		}, 2000);
 	}
 
 	private stopGanttAutoScroll(): void {
