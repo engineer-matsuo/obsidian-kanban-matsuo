@@ -11,6 +11,7 @@ import { KanbanView, KANBAN_VIEW_TYPE } from './kanban-view';
 import { KanbanSettingTab } from './settings';
 import { createBoard, boardToMarkdown, createItem } from './parser';
 import { setLocale, t } from './lang';
+import { colorForUuid } from './linked-notes';
 
 // ---------------------------------------------------------------------------
 // Suggest modals
@@ -229,6 +230,88 @@ export default class KanbanPlugin extends Plugin {
 			}),
 		);
 
+		// Decorate file explorer UUID folders with matching colors
+		// Debounced: layout-change fires frequently, so rebuild map + decorate together
+		let decorateTimer: number | null = null;
+		const debouncedDecorate = () => {
+			if (decorateTimer !== null) window.clearTimeout(decorateTimer);
+			decorateTimer = window.setTimeout(() => {
+				this.buildUuidColorMap().then(() => this.decorateUuidFolders());
+			}, 200);
+		};
+		this.registerEvent(
+			this.app.workspace.on('layout-change', debouncedDecorate),
+		);
+		// Also re-decorate when files are created/modified/deleted
+		this.registerEvent(
+			this.app.vault.on('create', debouncedDecorate),
+		);
+		this.registerEvent(
+			this.app.vault.on('modify', debouncedDecorate),
+		);
+		this.registerEvent(
+			this.app.vault.on('delete', debouncedDecorate),
+		);
+		this.registerEvent(
+			this.app.vault.on('rename', debouncedDecorate),
+		);
+		// Initial decoration after layout is ready
+		this.app.workspace.onLayoutReady(() => {
+			this.buildUuidColorMap().then(() => this.decorateUuidFolders());
+		});
+	}
+
+	/** Map of UUID → { color, boardFilePath } for all boards in the vault */
+	private uuidColorMap: Map<string, { color: string; boardPath: string }> = new Map();
+
+	/**
+	 * Scan all kanban files in the vault and build UUID → color map.
+	 */
+	private async buildUuidColorMap(): Promise<void> {
+		this.uuidColorMap.clear();
+		const files = this.app.vault.getMarkdownFiles();
+		for (const file of files) {
+			const content = await this.app.vault.cachedRead(file);
+			if (!content.includes('kanban-plugin: kanban-matsuo')) continue;
+			const match = content.match(/^board-uuid:\s*(.+)$/m);
+			if (match) {
+				const uuid = match[1].trim();
+				this.uuidColorMap.set(uuid, { color: colorForUuid(uuid), boardPath: file.path });
+			}
+		}
+	}
+
+	/**
+	 * Apply color decoration to UUID folders and board files in the file explorer.
+	 */
+	private decorateUuidFolders(): void {
+		for (const [uuid, { color, boardPath }] of this.uuidColorMap) {
+			// Decorate board file itself
+			const boardEl = document.querySelector(`[data-path="${boardPath}"]`) as HTMLElement | null;
+			if (boardEl) {
+				boardEl.style.setProperty('--kanban-uuid-color', color);
+				boardEl.classList.add('kanban-matsuo-uuid-folder');
+			}
+
+			// Decorate UUID folder (only if linked notes is enabled)
+			if (this.settings.linkedNotesEnabled && this.settings.linkedNoteFolder) {
+				const folderPath = normalizePath(`${this.settings.linkedNoteFolder}/${uuid}`);
+				const folderEl = document.querySelector(`[data-path="${folderPath}"]`) as HTMLElement | null;
+				if (folderEl) {
+					folderEl.style.setProperty('--kanban-uuid-color', color);
+					folderEl.classList.add('kanban-matsuo-uuid-folder');
+				}
+			}
+		}
+	}
+
+	/**
+	 * Refresh the UUID color map and re-decorate folders.
+	 * Called from KanbanView after saving a board.
+	 */
+	async refreshUuidFolderColors(): Promise<void> {
+		await this.buildUuidColorMap();
+		this.decorateUuidFolders();
 	}
 
 	async onunload(): Promise<void> {

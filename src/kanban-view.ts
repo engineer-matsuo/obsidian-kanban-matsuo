@@ -21,7 +21,7 @@ import {
 	createLane,
 } from './parser';
 import { t } from './lang';
-import { createOrUpdateLinkedNote, syncAllLinkedNotes } from './linked-notes';
+import { createOrUpdateLinkedNote, syncAllLinkedNotes, colorForUuid } from './linked-notes';
 
 export const KANBAN_VIEW_TYPE = 'kanban-matsuo-view';
 
@@ -152,6 +152,8 @@ export class KanbanView extends ItemView {
 		if (!this.file) return;
 		this.ignoreModifyCount++;
 		await this.app.vault.process(this.file, () => boardToMarkdown(board));
+		// Refresh file explorer UUID folder colors
+		this.plugin.refreshUuidFolderColors();
 	}
 
 	/** Re-render the view (for use by commands in main.ts) */
@@ -363,6 +365,7 @@ export class KanbanView extends ItemView {
 					'data-tooltip-position': 'top',
 				},
 			});
+			uuidLabel.style.setProperty('--kanban-uuid-color', colorForUuid(uuid));
 			uuidLabel.addEventListener('click', async () => {
 				await navigator.clipboard.writeText(uuid);
 				uuidLabel.setText(`ID: ${uuid} ✓`);

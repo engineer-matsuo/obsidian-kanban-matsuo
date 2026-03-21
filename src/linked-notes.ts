@@ -2,6 +2,17 @@ import { App, TFile, TFolder, normalizePath } from 'obsidian';
 import { KanbanBoard, KanbanItem, KanbanLane } from './types';
 
 /**
+ * Generate a deterministic color from a UUID.
+ * Uses the first 8 hex chars as hue (mod 360), with fixed saturation/lightness.
+ */
+export function colorForUuid(uuid: string): string {
+	const hex = uuid.replace(/-/g, '').slice(0, 8);
+	const num = parseInt(hex, 16);
+	const hue = num % 360;
+	return `hsl(${hue}, 60%, 55%)`;
+}
+
+/**
  * Clean a card title for use as a filename.
  * Removes tags, dates, wikilinks, and characters illegal in filenames.
  */

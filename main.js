@@ -684,6 +684,12 @@ function t(key, vars) {
 
 // src/linked-notes.ts
 var import_obsidian = require("obsidian");
+function colorForUuid(uuid) {
+  const hex = uuid.replace(/-/g, "").slice(0, 8);
+  const num = parseInt(hex, 16);
+  const hue = num % 360;
+  return `hsl(${hue}, 60%, 55%)`;
+}
 function cleanTitleForFilename(title) {
   let clean = title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").replace(/\[\[[^\]]+\]\]/g, "").replace(/📅\s*\d{4}-\d{2}-\d{2}/g, "").trim();
   clean = clean.replace(/[\\/:*?"<>|]/g, "_");
@@ -973,6 +979,7 @@ var KanbanView = class extends import_obsidian2.ItemView {
     if (!this.file) return;
     this.ignoreModifyCount++;
     await this.app.vault.process(this.file, () => boardToMarkdown(board));
+    this.plugin.refreshUuidFolderColors();
   }
   /** Re-render the view (for use by commands in main.ts) */
   refresh() {
@@ -1150,6 +1157,7 @@ var KanbanView = class extends import_obsidian2.ItemView {
           "data-tooltip-position": "top"
         }
       });
+      uuidLabel.style.setProperty("--kanban-uuid-color", colorForUuid(uuid));
       uuidLabel.addEventListener("click", async () => {
         await navigator.clipboard.writeText(uuid);
         uuidLabel.setText(`ID: ${uuid} \u2713`);
@@ -3212,6 +3220,8 @@ var KanbanPlugin = class extends import_obsidian4.Plugin {
   constructor() {
     super(...arguments);
     this.settings = DEFAULT_PLUGIN_SETTINGS;
+    /** Map of UUID → { color, boardFilePath } for all boards in the vault */
+    this.uuidColorMap = /* @__PURE__ */ new Map();
   }
   async onload() {
     await this.loadSettings();
@@ -3304,6 +3314,75 @@ var KanbanPlugin = class extends import_obsidian4.Plugin {
         });
       })
     );
+    let decorateTimer = null;
+    const debouncedDecorate = () => {
+      if (decorateTimer !== null) window.clearTimeout(decorateTimer);
+      decorateTimer = window.setTimeout(() => {
+        this.buildUuidColorMap().then(() => this.decorateUuidFolders());
+      }, 200);
+    };
+    this.registerEvent(
+      this.app.workspace.on("layout-change", debouncedDecorate)
+    );
+    this.registerEvent(
+      this.app.vault.on("create", debouncedDecorate)
+    );
+    this.registerEvent(
+      this.app.vault.on("modify", debouncedDecorate)
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", debouncedDecorate)
+    );
+    this.registerEvent(
+      this.app.vault.on("rename", debouncedDecorate)
+    );
+    this.app.workspace.onLayoutReady(() => {
+      this.buildUuidColorMap().then(() => this.decorateUuidFolders());
+    });
+  }
+  /**
+   * Scan all kanban files in the vault and build UUID → color map.
+   */
+  async buildUuidColorMap() {
+    this.uuidColorMap.clear();
+    const files = this.app.vault.getMarkdownFiles();
+    for (const file of files) {
+      const content = await this.app.vault.cachedRead(file);
+      if (!content.includes("kanban-plugin: kanban-matsuo")) continue;
+      const match = content.match(/^board-uuid:\s*(.+)$/m);
+      if (match) {
+        const uuid = match[1].trim();
+        this.uuidColorMap.set(uuid, { color: colorForUuid(uuid), boardPath: file.path });
+      }
+    }
+  }
+  /**
+   * Apply color decoration to UUID folders and board files in the file explorer.
+   */
+  decorateUuidFolders() {
+    for (const [uuid, { color, boardPath }] of this.uuidColorMap) {
+      const boardEl = document.querySelector(`[data-path="${boardPath}"]`);
+      if (boardEl) {
+        boardEl.style.setProperty("--kanban-uuid-color", color);
+        boardEl.classList.add("kanban-matsuo-uuid-folder");
+      }
+      if (this.settings.linkedNotesEnabled && this.settings.linkedNoteFolder) {
+        const folderPath = (0, import_obsidian4.normalizePath)(`${this.settings.linkedNoteFolder}/${uuid}`);
+        const folderEl = document.querySelector(`[data-path="${folderPath}"]`);
+        if (folderEl) {
+          folderEl.style.setProperty("--kanban-uuid-color", color);
+          folderEl.classList.add("kanban-matsuo-uuid-folder");
+        }
+      }
+    }
+  }
+  /**
+   * Refresh the UUID color map and re-decorate folders.
+   * Called from KanbanView after saving a board.
+   */
+  async refreshUuidFolderColors() {
+    await this.buildUuidColorMap();
+    this.decorateUuidFolders();
   }
   async onunload() {
   }
