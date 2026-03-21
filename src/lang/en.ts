@@ -131,6 +131,15 @@ export const en = {
 	'card.indent': 'Indent (make subtask)',
 	'card.outdent': 'Outdent (promote)',
 
+	// Archive
+	'archive.title': 'Archived cards',
+	'archive.empty': 'No archived cards.',
+	'archive.restore': 'Restore',
+	'archive.delete-permanent': 'Delete permanently',
+	'archive.restore-to': 'Restore to "{{lane}}"',
+	'archive.open': 'Archive',
+	'archive.count': '{{count}}',
+
 	// Drag hints
 	'drag.move-here': 'Move here',
 	'drag.indent': '→ Indent (subtask)',

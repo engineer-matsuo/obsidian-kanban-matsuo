@@ -410,6 +410,14 @@ var en = {
   // Indent buttons
   "card.indent": "Indent (make subtask)",
   "card.outdent": "Outdent (promote)",
+  // Archive
+  "archive.title": "Archived cards",
+  "archive.empty": "No archived cards.",
+  "archive.restore": "Restore",
+  "archive.delete-permanent": "Delete permanently",
+  "archive.restore-to": 'Restore to "{{lane}}"',
+  "archive.open": "Archive",
+  "archive.count": "{{count}}",
   // Drag hints
   "drag.move-here": "Move here",
   "drag.indent": "\u2192 Indent (subtask)",
@@ -557,6 +565,14 @@ var ja = {
   // Indent buttons
   "card.indent": "\u6BB5\u4E0B\u3052\uFF08\u30B5\u30D6\u30BF\u30B9\u30AF\u306B\u3059\u308B\uFF09",
   "card.outdent": "\u6BB5\u4E0A\u3052\uFF08\u5143\u306B\u623B\u3059\uFF09",
+  // Archive
+  "archive.title": "\u30A2\u30FC\u30AB\u30A4\u30D6\u6E08\u307F\u30AB\u30FC\u30C9",
+  "archive.empty": "\u30A2\u30FC\u30AB\u30A4\u30D6\u3055\u308C\u305F\u30AB\u30FC\u30C9\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "archive.restore": "\u5FA9\u5143",
+  "archive.delete-permanent": "\u5B8C\u5168\u306B\u524A\u9664",
+  "archive.restore-to": "\u300C{{lane}}\u300D\u306B\u5FA9\u5143",
+  "archive.open": "\u30A2\u30FC\u30AB\u30A4\u30D6",
+  "archive.count": "{{count}}",
   // Drag hints
   "drag.move-here": "\u3053\u3053\u306B\u79FB\u52D5",
   "drag.indent": "\u2192 \u6BB5\u4E0B\u3052\uFF08\u30B5\u30D6\u30BF\u30B9\u30AF\uFF09",
@@ -862,6 +878,34 @@ var KanbanView = class extends import_obsidian.ItemView {
       this.showWbs = !this.showWbs;
       this.render();
     });
+    const archiveCount = this.countArchivedItems();
+    const archiveBtn = rightGroup.createEl("button", {
+      cls: "kanban-matsuo-archive-btn clickable-icon",
+      attr: { "aria-label": t("archive.open"), "data-tooltip-position": "top" }
+    });
+    (0, import_obsidian.setIcon)(archiveBtn, "archive");
+    if (archiveCount > 0) {
+      archiveBtn.createSpan({ cls: "kanban-matsuo-archive-badge", text: t("archive.count", { count: archiveCount }) });
+    }
+    archiveBtn.addEventListener("click", () => {
+      new ArchiveModal(this.app, this.board, (board) => {
+        this.board = board;
+        this.render();
+        this.scheduleSave();
+      }).open();
+    });
+  }
+  countArchivedItems() {
+    if (!this.board) return 0;
+    let count = 0;
+    const countInItems = (items) => {
+      for (const item of items) {
+        if (item.archived) count++;
+        countInItems(item.children);
+      }
+    };
+    for (const lane of this.board.lanes) countInItems(lane.items);
+    return count;
   }
   collectTags(items, tags) {
     for (const item of items) {
@@ -1262,6 +1306,21 @@ var KanbanView = class extends import_obsidian.ItemView {
         this.indentItem(item, lane);
       });
     }
+    btnRow.createDiv({ cls: "kanban-matsuo-indent-spacer" });
+    const archiveBtn = btnRow.createEl("button", {
+      cls: "kanban-matsuo-card-archive-btn clickable-icon",
+      attr: { "aria-label": t("card.archive"), "data-tooltip-position": "top" }
+    });
+    (0, import_obsidian.setIcon)(archiveBtn, "archive");
+    archiveBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const title = item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim();
+      new ConfirmDeleteModal(this.app, title, 0, () => {
+        item.archived = true;
+        this.render();
+        this.scheduleSave();
+      }, t("card.archive"), t("card.archive")).open();
+    });
   }
   /**
    * Check if a deep indent is possible: the item is at idx 0 in its parent's children,
@@ -2440,17 +2499,19 @@ var WipLimitModal = class extends import_obsidian.Modal {
   }
 };
 var ConfirmDeleteModal = class extends import_obsidian.Modal {
-  constructor(app, _laneTitle, cardCount, onConfirm) {
+  constructor(app, nameOrTitle, cardCount, onConfirm, heading, confirmText) {
     super(app);
-    this.cardCount = cardCount;
+    this.message = cardCount > 0 ? t("lane.delete-confirm", { count: cardCount }) : `"${nameOrTitle}" \u2014 ${heading || t("modal.delete")}?`;
     this.onConfirm = onConfirm;
+    this.heading = heading || t("modal.delete-lane-title");
+    this.confirmText = confirmText || t("modal.delete");
   }
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createEl("h3", { text: t("modal.delete-lane-title") });
-    contentEl.createEl("p", { text: t("lane.delete-confirm", { count: this.cardCount }) });
-    new import_obsidian.Setting(contentEl).addButton((btn) => btn.setButtonText(t("modal.delete")).setWarning().onClick(() => {
+    contentEl.createEl("h3", { text: this.heading });
+    contentEl.createEl("p", { text: this.message });
+    new import_obsidian.Setting(contentEl).addButton((btn) => btn.setButtonText(this.confirmText).setWarning().onClick(() => {
       this.onConfirm();
       this.close();
     })).addButton((btn) => btn.setButtonText(t("modal.cancel")).onClick(() => this.close()));
@@ -2546,6 +2607,71 @@ var CardEditorModal = class extends import_obsidian.Modal {
     this.item.body = bodyEl.value.trim();
     this.onSave(this.item);
     this.close();
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+var ArchiveModal = class extends import_obsidian.Modal {
+  constructor(app, board, onUpdate) {
+    super(app);
+    this.board = board;
+    this.onUpdate = onUpdate;
+  }
+  onOpen() {
+    this.renderContent();
+  }
+  renderContent() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("kanban-matsuo-archive-modal");
+    contentEl.createEl("h3", { text: t("archive.title") });
+    const archived = [];
+    const collectArchived = (items, lane) => {
+      for (const item of items) {
+        if (item.archived) archived.push({ item, lane, parentList: items });
+        collectArchived(item.children, lane);
+      }
+    };
+    for (const lane of this.board.lanes) {
+      collectArchived(lane.items, lane);
+    }
+    if (archived.length === 0) {
+      contentEl.createEl("p", { text: t("archive.empty"), cls: "kanban-matsuo-archive-empty" });
+      return;
+    }
+    const list = contentEl.createDiv({ cls: "kanban-matsuo-archive-list" });
+    for (const { item, lane, parentList } of archived) {
+      const row = list.createDiv({ cls: "kanban-matsuo-archive-row" });
+      const info = row.createDiv({ cls: "kanban-matsuo-archive-info" });
+      const title = item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim();
+      info.createSpan({ cls: "kanban-matsuo-archive-title", text: title });
+      info.createSpan({ cls: "kanban-matsuo-archive-lane", text: lane.title });
+      if (item.tags.length > 0) {
+        const tagsEl = info.createSpan({ cls: "kanban-matsuo-archive-tags" });
+        tagsEl.setText(item.tags.map((tag) => `#${tag}`).join(" "));
+      }
+      const actions = row.createDiv({ cls: "kanban-matsuo-archive-actions" });
+      const restoreBtn = actions.createEl("button", {
+        cls: "kanban-matsuo-archive-restore-btn",
+        text: t("archive.restore")
+      });
+      restoreBtn.addEventListener("click", () => {
+        item.archived = false;
+        this.onUpdate(this.board);
+        this.renderContent();
+      });
+      const deleteBtn = actions.createEl("button", {
+        cls: "kanban-matsuo-archive-delete-btn",
+        text: t("archive.delete-permanent")
+      });
+      deleteBtn.addEventListener("click", () => {
+        const idx = parentList.indexOf(item);
+        if (idx >= 0) parentList.splice(idx, 1);
+        this.onUpdate(this.board);
+        this.renderContent();
+      });
+    }
   }
   onClose() {
     this.contentEl.empty();

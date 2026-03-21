@@ -133,6 +133,15 @@ export const ja: Record<TranslationKey, string> = {
 	'card.indent': '段下げ（サブタスクにする）',
 	'card.outdent': '段上げ（元に戻す）',
 
+	// Archive
+	'archive.title': 'アーカイブ済みカード',
+	'archive.empty': 'アーカイブされたカードはありません。',
+	'archive.restore': '復元',
+	'archive.delete-permanent': '完全に削除',
+	'archive.restore-to': '「{{lane}}」に復元',
+	'archive.open': 'アーカイブ',
+	'archive.count': '{{count}}',
+
 	// Drag hints
 	'drag.move-here': 'ここに移動',
 	'drag.indent': '→ 段下げ（サブタスク）',

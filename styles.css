@@ -581,6 +581,22 @@
 	outline-offset: 1px;
 }
 
+.kanban-matsuo-indent-spacer {
+	flex: 1;
+}
+
+.kanban-matsuo-card-archive-btn {
+	min-width: 32px;
+	min-height: 28px;
+	padding: var(--size-2-1);
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.kanban-matsuo-card-archive-btn:hover {
+	color: var(--text-muted);
+}
+
 /* Child card indentation */
 .kanban-matsuo-card-child {
 	margin-left: calc(var(--card-depth, 1) * var(--size-4-4));
@@ -1086,6 +1102,116 @@ span.kanban-matsuo-subtask-done {
 
 .kanban-matsuo-gantt-right-cells:active {
 	cursor: grabbing;
+}
+
+/* Archive button */
+.kanban-matsuo-archive-btn {
+	min-width: 44px;
+	min-height: 44px;
+	position: relative;
+}
+
+.kanban-matsuo-archive-badge {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: 10px;
+	min-width: 16px;
+	height: 16px;
+	line-height: 16px;
+	text-align: center;
+	border-radius: 8px;
+	padding: 0 4px;
+}
+
+/* Archive modal */
+.kanban-matsuo-archive-modal {
+	max-width: 600px;
+}
+
+.kanban-matsuo-archive-empty {
+	color: var(--text-muted);
+	font-style: italic;
+}
+
+.kanban-matsuo-archive-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	max-height: 60vh;
+	overflow-y: auto;
+}
+
+.kanban-matsuo-archive-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-3);
+	padding: var(--size-4-2) var(--size-4-3);
+	background: var(--background-secondary);
+	border-radius: var(--radius-s);
+	border: 1px solid var(--background-modifier-border);
+}
+
+.kanban-matsuo-archive-info {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-1);
+	flex: 1;
+	min-width: 0;
+}
+
+.kanban-matsuo-archive-title {
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	word-break: break-word;
+}
+
+.kanban-matsuo-archive-lane {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-accent);
+}
+
+.kanban-matsuo-archive-tags {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.kanban-matsuo-archive-actions {
+	display: flex;
+	gap: var(--size-4-1);
+	flex-shrink: 0;
+}
+
+.kanban-matsuo-archive-restore-btn {
+	padding: var(--size-2-2) var(--size-4-2);
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border: none;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	font-size: var(--font-ui-smaller);
+}
+
+.kanban-matsuo-archive-restore-btn:hover {
+	opacity: 0.9;
+}
+
+.kanban-matsuo-archive-delete-btn {
+	padding: var(--size-2-2) var(--size-4-2);
+	background: transparent;
+	color: var(--text-error);
+	border: 1px solid var(--text-error);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	font-size: var(--font-ui-smaller);
+}
+
+.kanban-matsuo-archive-delete-btn:hover {
+	background: var(--text-error);
+	color: var(--text-on-accent);
 }
 
 /* Mobile responsive */
