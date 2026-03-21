@@ -76,6 +76,16 @@ export const ja: Record<TranslationKey, string> = {
 	// Card extra
 	'card.create-note': 'リンク先ノートを作成',
 	'card.open-note': 'リンク先ノートを開く',
+	'card.unlink-note': 'ノートのリンクを解除',
+
+	// Linked notes settings
+	'settings.linked-notes': 'リンクノート',
+	'settings.linked-notes-enabled': 'リンクノートを有効化',
+	'settings.linked-notes-enabled-desc': 'カンバンカードに連動するObsidianノートを作成します。',
+	'settings.linked-note-folder': 'ノートフォルダ',
+	'settings.linked-note-folder-desc': 'リンクノートを保存するVault内のフォルダ。',
+	'settings.linked-note-folder-placeholder': '例: KanbanNotes',
+	'settings.linked-note-folder-warning': 'Vault内にフォルダを作成してパスを入力してください。',
 
 	// Commands extra
 	'command.add-card': 'レーンにカードを追加',
@@ -146,6 +156,9 @@ export const ja: Record<TranslationKey, string> = {
 	'drag.move-here': 'ここに移動',
 	'drag.indent': '→ 段下げ（サブタスク）',
 	'drag.outdent': '← 段上げ',
+
+	// Board UUID
+	'board.uuid-click-to-copy': 'クリックで完全なUUIDをコピー',
 
 	// Rich card toggle
 	'board.rich-mode-on': 'リッチカード表示',

@@ -74,6 +74,16 @@ export const en = {
 	// Card extra
 	'card.create-note': 'Create linked note',
 	'card.open-note': 'Open linked note',
+	'card.unlink-note': 'Unlink note',
+
+	// Linked notes settings
+	'settings.linked-notes': 'Linked notes',
+	'settings.linked-notes-enabled': 'Enable linked notes',
+	'settings.linked-notes-enabled-desc': 'Create Obsidian notes linked to kanban cards.',
+	'settings.linked-note-folder': 'Note folder',
+	'settings.linked-note-folder-desc': 'Vault folder where linked notes will be saved.',
+	'settings.linked-note-folder-placeholder': 'e.g. KanbanNotes',
+	'settings.linked-note-folder-warning': 'Please create a folder in your vault and enter its path.',
 
 	// Commands extra
 	'command.add-card': 'Add card to lane',
@@ -144,6 +154,9 @@ export const en = {
 	'drag.move-here': 'Move here',
 	'drag.indent': '→ Indent (subtask)',
 	'drag.outdent': '← Outdent',
+
+	// Board UUID
+	'board.uuid-click-to-copy': 'Click to copy full UUID',
 
 	// Rich card toggle
 	'board.rich-mode-on': 'Rich card view',

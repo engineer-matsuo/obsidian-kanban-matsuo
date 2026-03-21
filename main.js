@@ -27,7 +27,7 @@ __export(main_exports, {
   default: () => KanbanPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // src/types.ts
 var DEFAULT_PLUGIN_SETTINGS = {
@@ -39,17 +39,20 @@ var DEFAULT_PLUGIN_SETTINGS = {
   autoSaveDelay: 500,
   language: "auto",
   newlineKey: "shift+enter",
-  timezone: "local"
+  timezone: "local",
+  linkedNotesEnabled: false,
+  linkedNoteFolder: ""
 };
 var DEFAULT_BOARD_SETTINGS = {
   laneWidth: 500,
   showTags: true,
   showDates: true,
-  showCheckboxes: true
+  showCheckboxes: true,
+  boardUuid: ""
 };
 
 // src/kanban-view.ts
-var import_obsidian = require("obsidian");
+var import_obsidian2 = require("obsidian");
 
 // src/parser.ts
 function generateId() {
@@ -66,7 +69,8 @@ function createItem(title) {
     endDate: dates.end,
     checked: false,
     archived: false,
-    children: []
+    children: [],
+    linkedNotePath: null
   };
 }
 function createLane(title) {
@@ -81,7 +85,7 @@ function createLane(title) {
 function createBoard(laneNames) {
   return {
     lanes: laneNames.map((name) => createLane(name)),
-    settings: { ...DEFAULT_BOARD_SETTINGS }
+    settings: { ...DEFAULT_BOARD_SETTINGS, boardUuid: crypto.randomUUID() }
   };
 }
 function extractTags(text) {
@@ -149,6 +153,12 @@ function parseMarkdown(content) {
         itemStack = parsed2;
         continue;
       }
+      const archiveLinkedPath = parseLinkedComment(line);
+      if (archiveLinkedPath !== null) {
+        const curA = getCurrentItem();
+        if (curA) curA.linkedNotePath = archiveLinkedPath;
+        continue;
+      }
       const cur2 = getCurrentItem();
       if (cur2 && line.match(/^\s{4}/) && line.trim().length > 0 && !line.match(/^\s*[-*]\s/)) {
         if (cur2.body) cur2.body += "\n";
@@ -166,6 +176,12 @@ function parseMarkdown(content) {
     const parsed = parseCardLine(line, itemStack, currentLane, false);
     if (parsed) {
       itemStack = parsed;
+      continue;
+    }
+    const linkedPath = parseLinkedComment(line);
+    if (linkedPath !== null) {
+      const cur2 = getCurrentItem();
+      if (cur2) cur2.linkedNotePath = linkedPath;
       continue;
     }
     const cur = getCurrentItem();
@@ -221,6 +237,9 @@ function parseFrontmatterLine(line, settings) {
     case "show-checkboxes":
       settings.showCheckboxes = value.trim() === "true";
       break;
+    case "board-uuid":
+      settings.boardUuid = value.trim();
+      break;
   }
 }
 function parseItemText(rawText) {
@@ -235,6 +254,10 @@ function parseItemText(rawText) {
   item.checked = checked;
   return item;
 }
+function parseLinkedComment(line) {
+  const m = line.match(/^\s*<!--\s*linked:(.+?)\s*-->$/);
+  return m ? m[1] : null;
+}
 function boardToMarkdown(board) {
   const lines = [];
   lines.push("---");
@@ -243,6 +266,9 @@ function boardToMarkdown(board) {
   lines.push(`show-tags: ${board.settings.showTags}`);
   lines.push(`show-dates: ${board.settings.showDates}`);
   lines.push(`show-checkboxes: ${board.settings.showCheckboxes}`);
+  if (board.settings.boardUuid) {
+    lines.push(`board-uuid: ${board.settings.boardUuid}`);
+  }
   lines.push("---");
   lines.push("");
   for (const lane of board.lanes) {
@@ -283,6 +309,9 @@ function serializeItem(item, lines, depth, showCheckboxes) {
   }
   line += item.title;
   lines.push(line);
+  if (item.linkedNotePath) {
+    lines.push(`${indent}<!-- linked:${item.linkedNotePath} -->`);
+  }
   if (item.body) {
     for (const bodyLine of item.body.split("\n")) {
       lines.push(`${indent}    ${bodyLine}`);
@@ -363,6 +392,15 @@ var en = {
   // Card extra
   "card.create-note": "Create linked note",
   "card.open-note": "Open linked note",
+  "card.unlink-note": "Unlink note",
+  // Linked notes settings
+  "settings.linked-notes": "Linked notes",
+  "settings.linked-notes-enabled": "Enable linked notes",
+  "settings.linked-notes-enabled-desc": "Create Obsidian notes linked to kanban cards.",
+  "settings.linked-note-folder": "Note folder",
+  "settings.linked-note-folder-desc": "Vault folder where linked notes will be saved.",
+  "settings.linked-note-folder-placeholder": "e.g. KanbanNotes",
+  "settings.linked-note-folder-warning": "Please create a folder in your vault and enter its path.",
   // Commands extra
   "command.add-card": "Add card to lane",
   "command.move-card": "Move card",
@@ -422,6 +460,8 @@ var en = {
   "drag.move-here": "Move here",
   "drag.indent": "\u2192 Indent (subtask)",
   "drag.outdent": "\u2190 Outdent",
+  // Board UUID
+  "board.uuid-click-to-copy": "Click to copy full UUID",
   // Rich card toggle
   "board.rich-mode-on": "Rich card view",
   "board.rich-mode-off": "Compact card view",
@@ -518,6 +558,15 @@ var ja = {
   // Card extra
   "card.create-note": "\u30EA\u30F3\u30AF\u5148\u30CE\u30FC\u30C8\u3092\u4F5C\u6210",
   "card.open-note": "\u30EA\u30F3\u30AF\u5148\u30CE\u30FC\u30C8\u3092\u958B\u304F",
+  "card.unlink-note": "\u30CE\u30FC\u30C8\u306E\u30EA\u30F3\u30AF\u3092\u89E3\u9664",
+  // Linked notes settings
+  "settings.linked-notes": "\u30EA\u30F3\u30AF\u30CE\u30FC\u30C8",
+  "settings.linked-notes-enabled": "\u30EA\u30F3\u30AF\u30CE\u30FC\u30C8\u3092\u6709\u52B9\u5316",
+  "settings.linked-notes-enabled-desc": "\u30AB\u30F3\u30D0\u30F3\u30AB\u30FC\u30C9\u306B\u9023\u52D5\u3059\u308BObsidian\u30CE\u30FC\u30C8\u3092\u4F5C\u6210\u3057\u307E\u3059\u3002",
+  "settings.linked-note-folder": "\u30CE\u30FC\u30C8\u30D5\u30A9\u30EB\u30C0",
+  "settings.linked-note-folder-desc": "\u30EA\u30F3\u30AF\u30CE\u30FC\u30C8\u3092\u4FDD\u5B58\u3059\u308BVault\u5185\u306E\u30D5\u30A9\u30EB\u30C0\u3002",
+  "settings.linked-note-folder-placeholder": "\u4F8B: KanbanNotes",
+  "settings.linked-note-folder-warning": "Vault\u5185\u306B\u30D5\u30A9\u30EB\u30C0\u3092\u4F5C\u6210\u3057\u3066\u30D1\u30B9\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
   // Commands extra
   "command.add-card": "\u30EC\u30FC\u30F3\u306B\u30AB\u30FC\u30C9\u3092\u8FFD\u52A0",
   "command.move-card": "\u30AB\u30FC\u30C9\u3092\u79FB\u52D5",
@@ -577,6 +626,8 @@ var ja = {
   "drag.move-here": "\u3053\u3053\u306B\u79FB\u52D5",
   "drag.indent": "\u2192 \u6BB5\u4E0B\u3052\uFF08\u30B5\u30D6\u30BF\u30B9\u30AF\uFF09",
   "drag.outdent": "\u2190 \u6BB5\u4E0A\u3052",
+  // Board UUID
+  "board.uuid-click-to-copy": "\u30AF\u30EA\u30C3\u30AF\u3067\u5B8C\u5168\u306AUUID\u3092\u30B3\u30D4\u30FC",
   // Rich card toggle
   "board.rich-mode-on": "\u30EA\u30C3\u30C1\u30AB\u30FC\u30C9\u8868\u793A",
   "board.rich-mode-off": "\u30B3\u30F3\u30D1\u30AF\u30C8\u30AB\u30FC\u30C9\u8868\u793A",
@@ -631,9 +682,187 @@ function t(key, vars) {
   return text;
 }
 
+// src/linked-notes.ts
+var import_obsidian = require("obsidian");
+function cleanTitleForFilename(title) {
+  let clean = title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").replace(/\[\[[^\]]+\]\]/g, "").replace(/📅\s*\d{4}-\d{2}-\d{2}/g, "").trim();
+  clean = clean.replace(/[\\/:*?"<>|]/g, "_");
+  return clean || "Untitled";
+}
+var MANAGED_START = "%% kanban-managed-start \u2014 \u3053\u306E\u7BC4\u56F2\u306F\u30AB\u30F3\u30D0\u30F3\u304C\u81EA\u52D5\u66F4\u65B0\u3057\u307E\u3059\u3002\u7DE8\u96C6\u3057\u306A\u3044\u3067\u304F\u3060\u3055\u3044 / This section is auto-synced by Kanban. Do not edit. %%";
+var MANAGED_END = "%% kanban-managed-end \u2014 \u81EA\u52D5\u7BA1\u7406\u3053\u3053\u307E\u3067 / End of auto-managed section %%";
+function generateManagedSection(item, lane, boardPath, parentItem) {
+  const lines = [];
+  lines.push(MANAGED_START);
+  lines.push(`> [!info] Kanban: **${lane.title}** \u2014 ${item.checked ? "Complete" : "Incomplete"}`);
+  lines.push(`> Source: \`${boardPath}\``);
+  lines.push("");
+  if (parentItem && parentItem.linkedNotePath) {
+    const parentNoteName = parentItem.linkedNotePath.replace(/\.md$/, "").split("/").pop() || "";
+    lines.push("### Parent task");
+    lines.push(`- [[${parentNoteName}]]`);
+    lines.push("");
+  }
+  const directChildren = item.children;
+  if (directChildren.length > 0) {
+    lines.push("### Subtasks");
+    for (const child of directChildren) {
+      const check = child.checked ? "[x]" : "[ ]";
+      const childTitle = cleanTitleForFilename(child.title);
+      if (child.linkedNotePath) {
+        const childNoteName = child.linkedNotePath.replace(/\.md$/, "").split("/").pop() || "";
+        lines.push(`- ${check} [[${childNoteName}]] - ${childTitle}`);
+      } else {
+        lines.push(`- ${check} ${childTitle}`);
+      }
+    }
+    lines.push("");
+  }
+  lines.push(MANAGED_END);
+  return lines.join("\n");
+}
+function generateFrontmatter(item, lane, boardPath) {
+  const lines = [];
+  lines.push("---");
+  lines.push(`kanban-source: "${boardPath}"`);
+  lines.push(`kanban-card-id: "${item.id}"`);
+  lines.push(`kanban-lane: "${lane.title}"`);
+  if (item.tags.length > 0) {
+    lines.push(`tags: [${item.tags.join(", ")}]`);
+  }
+  if (item.startDate) {
+    lines.push(`start-date: ${item.startDate}`);
+  }
+  if (item.endDate) {
+    lines.push(`end-date: ${item.endDate}`);
+  }
+  lines.push(`status: ${item.checked ? "complete" : "incomplete"}`);
+  lines.push("---");
+  return lines.join("\n");
+}
+function generateNoteContent(item, lane, boardPath, parentItem) {
+  const lines = [];
+  lines.push(generateFrontmatter(item, lane, boardPath));
+  lines.push("");
+  const displayTitle = cleanTitleForFilename(item.title);
+  lines.push(`# ${displayTitle}`);
+  lines.push("");
+  lines.push(generateManagedSection(item, lane, boardPath, parentItem));
+  lines.push("");
+  lines.push("## Notes");
+  lines.push("");
+  return lines.join("\n");
+}
+function updateNoteContent(existingContent, item, lane, boardPath, parentItem) {
+  let content = existingContent;
+  const fmRegex = /^---\n[\s\S]*?\n---/;
+  const newFm = generateFrontmatter(item, lane, boardPath);
+  if (fmRegex.test(content)) {
+    content = content.replace(fmRegex, newFm);
+  } else {
+    content = newFm + "\n\n" + content;
+  }
+  const managedSection = generateManagedSection(item, lane, boardPath, parentItem);
+  const managedBlockRegex = /%%\s*kanban-managed-start[\s\S]*?kanban-managed-end[^\n]*%%\n*/g;
+  content = content.replace(managedBlockRegex, "");
+  const headingMatch = content.match(/^# .+$/m);
+  if (headingMatch && headingMatch.index !== void 0) {
+    const insertPos = headingMatch.index + headingMatch[0].length;
+    const before = content.slice(0, insertPos);
+    const after = content.slice(insertPos);
+    content = before + "\n\n" + managedSection + "\n" + after;
+  } else {
+    content = content + "\n\n" + managedSection + "\n";
+  }
+  return content;
+}
+function buildItemMap(board) {
+  const map = /* @__PURE__ */ new Map();
+  function walk(items, lane) {
+    for (const item of items) {
+      map.set(item.id, { item, lane });
+      walk(item.children, lane);
+    }
+  }
+  for (const lane of board.lanes) {
+    walk(lane.items, lane);
+  }
+  return map;
+}
+function findParent(items, target) {
+  for (const item of items) {
+    if (item.children.includes(target)) return item;
+    const found = findParent(item.children, target);
+    if (found) return found;
+  }
+  return null;
+}
+async function ensureFolder(app, folderPath) {
+  const normalized = (0, import_obsidian.normalizePath)(folderPath);
+  if (!normalized) return;
+  const existing = app.vault.getAbstractFileByPath(normalized);
+  if (existing instanceof import_obsidian.TFolder) return;
+  await app.vault.createFolder(normalized);
+}
+function getUniqueNotePath(app, folder, baseName, cardId) {
+  const firstTry = (0, import_obsidian.normalizePath)(`${folder}/${baseName}.md`);
+  const existing = app.vault.getAbstractFileByPath(firstTry);
+  if (!existing) return firstTry;
+  return (0, import_obsidian.normalizePath)(`${folder}/${baseName}_${cardId}.md`);
+}
+async function createOrUpdateLinkedNote(app, item, lane, board, boardPath, baseFolder) {
+  const boardUuid = board.settings.boardUuid;
+  if (!boardUuid) return "";
+  const boardFolder = (0, import_obsidian.normalizePath)(`${baseFolder}/${boardUuid}`);
+  await ensureFolder(app, boardFolder);
+  const parentItem = findParentInBoard(board, item);
+  if (item.linkedNotePath) {
+    const file = app.vault.getAbstractFileByPath(item.linkedNotePath);
+    if (file instanceof import_obsidian.TFile) {
+      const existingContent = await app.vault.read(file);
+      const updatedContent = updateNoteContent(existingContent, item, lane, boardPath, parentItem);
+      await app.vault.modify(file, updatedContent);
+      return item.linkedNotePath;
+    }
+  }
+  const content = generateNoteContent(item, lane, boardPath, parentItem);
+  const baseName = cleanTitleForFilename(item.title);
+  const notePath = getUniqueNotePath(app, boardFolder, baseName, item.id);
+  await app.vault.create(notePath, content);
+  return notePath;
+}
+function findParentInBoard(board, target) {
+  for (const lane of board.lanes) {
+    const found = findParent(lane.items, target);
+    if (found) return found;
+  }
+  return null;
+}
+async function syncAllLinkedNotes(app, board, boardPath, baseFolder) {
+  if (!board.settings.boardUuid || !baseFolder) return false;
+  const allItems = buildItemMap(board);
+  let changed = false;
+  for (const [, { item, lane }] of allItems) {
+    if (!item.linkedNotePath) continue;
+    const file = app.vault.getAbstractFileByPath(item.linkedNotePath);
+    if (!(file instanceof import_obsidian.TFile)) {
+      item.linkedNotePath = null;
+      changed = true;
+      continue;
+    }
+    const parentItem = findParentInBoard(board, item);
+    const existingContent = await app.vault.read(file);
+    const updatedContent = updateNoteContent(existingContent, item, lane, boardPath, parentItem);
+    if (existingContent !== updatedContent) {
+      await app.vault.modify(file, updatedContent);
+    }
+  }
+  return changed;
+}
+
 // src/kanban-view.ts
 var KANBAN_VIEW_TYPE = "kanban-matsuo-view";
-var KanbanView = class extends import_obsidian.ItemView {
+var KanbanView = class extends import_obsidian2.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.board = null;
@@ -689,7 +918,7 @@ var KanbanView = class extends import_obsidian.ItemView {
           this.ignoreModifyCount--;
           return;
         }
-        if (file instanceof import_obsidian.TFile && this.file && file.path === this.file.path) {
+        if (file instanceof import_obsidian2.TFile && this.file && file.path === this.file.path) {
           await this.loadFile(file);
         }
       })
@@ -705,6 +934,11 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.file = file;
     const content = await this.app.vault.read(file);
     this.board = parseMarkdown(content);
+    if (!this.board.settings.boardUuid) {
+      this.board.settings.boardUuid = crypto.randomUUID();
+      this.ignoreModifyCount++;
+      await this.app.vault.process(file, () => boardToMarkdown(this.board));
+    }
     this.render();
   }
   /** Public accessor for commands in main.ts */
@@ -757,6 +991,18 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.ignoreModifyCount++;
     const board = this.board;
     await this.app.vault.process(this.file, () => boardToMarkdown(board));
+    if (this.plugin.settings.linkedNotesEnabled && this.plugin.settings.linkedNoteFolder) {
+      const changed = await syncAllLinkedNotes(
+        this.app,
+        board,
+        this.file.path,
+        this.plugin.settings.linkedNoteFolder
+      );
+      if (changed) {
+        this.ignoreModifyCount++;
+        await this.app.vault.process(this.file, () => boardToMarkdown(board));
+      }
+    }
   }
   render() {
     var _a, _b, _c, _d;
@@ -820,13 +1066,13 @@ var KanbanView = class extends import_obsidian.ItemView {
       cls: "kanban-matsuo-filter-btn clickable-icon",
       attr: { "aria-label": t("filter.by-tag"), "data-tooltip-position": "top" }
     });
-    (0, import_obsidian.setIcon)(tagFilterBtn, "tag");
+    (0, import_obsidian2.setIcon)(tagFilterBtn, "tag");
     tagFilterBtn.addEventListener("click", (e) => this.showTagFilterMenu(e));
     const dateFilterBtn = leftGroup.createEl("button", {
       cls: "kanban-matsuo-filter-btn clickable-icon",
       attr: { "aria-label": t("filter.by-date"), "data-tooltip-position": "top" }
     });
-    (0, import_obsidian.setIcon)(dateFilterBtn, "calendar");
+    (0, import_obsidian2.setIcon)(dateFilterBtn, "calendar");
     dateFilterBtn.addEventListener("click", (e) => this.showDateFilterMenu(e));
     if (this.filters.length > 0) {
       const dateLabels = {
@@ -845,7 +1091,7 @@ var KanbanView = class extends import_obsidian.ItemView {
           cls: "kanban-matsuo-filter-clear-btn clickable-icon",
           attr: { "aria-label": t("filter.clear") }
         });
-        (0, import_obsidian.setIcon)(clearBtn, "x");
+        (0, import_obsidian2.setIcon)(clearBtn, "x");
         const idx = fi;
         clearBtn.addEventListener("click", () => {
           this.filters.splice(idx, 1);
@@ -861,7 +1107,7 @@ var KanbanView = class extends import_obsidian.ItemView {
         "data-tooltip-position": "top"
       }
     });
-    (0, import_obsidian.setIcon)(richToggle, this.richMode ? "layout-list" : "layout-dashboard");
+    (0, import_obsidian2.setIcon)(richToggle, this.richMode ? "layout-list" : "layout-dashboard");
     richToggle.addEventListener("click", () => {
       this.richMode = !this.richMode;
       this.render();
@@ -873,7 +1119,7 @@ var KanbanView = class extends import_obsidian.ItemView {
         "data-tooltip-position": "top"
       }
     });
-    (0, import_obsidian.setIcon)(wbsToggle, "table");
+    (0, import_obsidian2.setIcon)(wbsToggle, "table");
     wbsToggle.addEventListener("click", () => {
       this.showWbs = !this.showWbs;
       this.render();
@@ -883,7 +1129,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       cls: "kanban-matsuo-archive-btn clickable-icon",
       attr: { "aria-label": t("archive.open"), "data-tooltip-position": "top" }
     });
-    (0, import_obsidian.setIcon)(archiveBtn, "archive");
+    (0, import_obsidian2.setIcon)(archiveBtn, "archive");
     if (archiveCount > 0) {
       archiveBtn.createSpan({ cls: "kanban-matsuo-archive-badge", text: t("archive.count", { count: archiveCount }) });
     }
@@ -894,6 +1140,22 @@ var KanbanView = class extends import_obsidian.ItemView {
         this.scheduleSave();
       }).open();
     });
+    if (this.board.settings.boardUuid) {
+      const uuid = this.board.settings.boardUuid;
+      const uuidLabel = rightGroup.createSpan({
+        cls: "kanban-matsuo-board-uuid",
+        text: `ID: ${uuid}`,
+        attr: {
+          "aria-label": t("board.uuid-click-to-copy"),
+          "data-tooltip-position": "top"
+        }
+      });
+      uuidLabel.addEventListener("click", async () => {
+        await navigator.clipboard.writeText(uuid);
+        uuidLabel.setText(`ID: ${uuid} \u2713`);
+        window.setTimeout(() => uuidLabel.setText(`ID: ${uuid}`), 1500);
+      });
+    }
   }
   countArchivedItems() {
     if (!this.board) return 0;
@@ -916,7 +1178,7 @@ var KanbanView = class extends import_obsidian.ItemView {
   }
   showTagFilterMenu(e) {
     if (!this.board) return;
-    const menu = new import_obsidian.Menu();
+    const menu = new import_obsidian2.Menu();
     const allTags = /* @__PURE__ */ new Set();
     for (const lane of this.board.lanes) {
       this.collectTags(lane.items, allTags);
@@ -941,7 +1203,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     this.showMenuAtEvent(menu, e);
   }
   showDateFilterMenu(e) {
-    const menu = new import_obsidian.Menu();
+    const menu = new import_obsidian2.Menu();
     const items = [
       [t("filter.all"), "list", ""],
       [t("filter.overdue"), "alert-circle", "overdue"],
@@ -1018,7 +1280,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       cls: "kanban-matsuo-lane-drag-handle clickable-icon",
       attr: { "aria-label": t("lane.drag-handle"), draggable: "true", "data-tooltip-position": "top" }
     });
-    (0, import_obsidian.setIcon)(dragHandle, "grip-vertical");
+    (0, import_obsidian2.setIcon)(dragHandle, "grip-vertical");
     dragHandle.addEventListener("dragstart", (e) => {
       this.draggedLane = lane;
       laneEl.addClass("kanban-matsuo-lane-dragging");
@@ -1055,7 +1317,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       cls: "kanban-matsuo-collapse-btn clickable-icon",
       attr: { "aria-label": lane.collapsed ? t("lane.expand") : t("lane.collapse"), "data-tooltip-position": "top" }
     });
-    (0, import_obsidian.setIcon)(collapseBtn, lane.collapsed ? "chevron-right" : "chevron-down");
+    (0, import_obsidian2.setIcon)(collapseBtn, lane.collapsed ? "chevron-right" : "chevron-down");
     collapseBtn.addEventListener("click", () => {
       lane.collapsed = !lane.collapsed;
       this.render();
@@ -1093,7 +1355,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       cls: "kanban-matsuo-lane-menu clickable-icon",
       attr: { "aria-label": t("lane.options"), "data-tooltip-position": "top" }
     });
-    (0, import_obsidian.setIcon)(menuBtn, "more-vertical");
+    (0, import_obsidian2.setIcon)(menuBtn, "more-vertical");
     menuBtn.addEventListener("click", (e) => this.showLaneMenu(e, lane));
     if (!lane.collapsed) {
       const listEl = laneEl.createDiv({
@@ -1289,7 +1551,7 @@ var KanbanView = class extends import_obsidian.ItemView {
         cls: "kanban-matsuo-indent-btn clickable-icon",
         attr: { "aria-label": t("card.outdent"), "data-tooltip-position": "top" }
       });
-      (0, import_obsidian.setIcon)(outdentBtn, "arrow-left");
+      (0, import_obsidian2.setIcon)(outdentBtn, "arrow-left");
       outdentBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         this.outdentItem(item, lane);
@@ -1300,18 +1562,44 @@ var KanbanView = class extends import_obsidian.ItemView {
         cls: "kanban-matsuo-indent-btn clickable-icon",
         attr: { "aria-label": t("card.indent"), "data-tooltip-position": "top" }
       });
-      (0, import_obsidian.setIcon)(indentBtn, "arrow-right");
+      (0, import_obsidian2.setIcon)(indentBtn, "arrow-right");
       indentBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         this.indentItem(item, lane);
       });
     }
     btnRow.createDiv({ cls: "kanban-matsuo-indent-spacer" });
+    if (this.plugin.settings.linkedNotesEnabled && this.plugin.settings.linkedNoteFolder) {
+      const isLinked = !!item.linkedNotePath;
+      const linkBtn = btnRow.createEl("button", {
+        cls: "kanban-matsuo-card-link-btn clickable-icon",
+        attr: {
+          "aria-label": isLinked ? t("card.open-note") : t("card.create-note"),
+          "data-tooltip-position": "top"
+        }
+      });
+      (0, import_obsidian2.setIcon)(linkBtn, isLinked ? "file-text" : "file-plus");
+      linkBtn.addEventListener("click", async (e) => {
+        var _a;
+        e.stopPropagation();
+        if (isLinked && item.linkedNotePath) {
+          const file = this.app.vault.getAbstractFileByPath(item.linkedNotePath);
+          if (file instanceof import_obsidian2.TFile) {
+            await this.app.workspace.openLinkText(item.linkedNotePath, ((_a = this.file) == null ? void 0 : _a.path) || "");
+          } else {
+            item.linkedNotePath = null;
+            await this.createLinkedNoteForCard(item, lane);
+          }
+        } else {
+          await this.createLinkedNoteForCard(item, lane);
+        }
+      });
+    }
     const archiveBtn = btnRow.createEl("button", {
       cls: "kanban-matsuo-card-archive-btn clickable-icon",
       attr: { "aria-label": t("card.archive"), "data-tooltip-position": "top" }
     });
-    (0, import_obsidian.setIcon)(archiveBtn, "archive");
+    (0, import_obsidian2.setIcon)(archiveBtn, "archive");
     archiveBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       const title = item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim();
@@ -1574,7 +1862,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       cls: "kanban-matsuo-gantt-lane-filter clickable-icon",
       attr: { "aria-label": t("wbs.filter-lanes"), "data-tooltip-position": "top" }
     });
-    (0, import_obsidian.setIcon)(laneFilterBtn, "filter");
+    (0, import_obsidian2.setIcon)(laneFilterBtn, "filter");
     if (this.ganttHiddenLanes.size > 0) laneFilterBtn.addClass("kanban-matsuo-gantt-lane-filter-active");
     laneFilterBtn.addEventListener("click", (e) => this.showGanttLaneFilterMenu(e));
     const hdr1Right = hdr1.createDiv({ cls: "kanban-matsuo-gantt-right-cells kanban-matsuo-gantt-hdr-cell" });
@@ -1775,7 +2063,7 @@ var KanbanView = class extends import_obsidian.ItemView {
   }
   showGanttLaneFilterMenu(e) {
     if (!this.board) return;
-    const menu = new import_obsidian.Menu();
+    const menu = new import_obsidian2.Menu();
     menu.addItem((mi) => mi.setTitle(t("wbs.all-lanes")).setIcon("list").onClick(() => {
       this.ganttHiddenLanes.clear();
       this.render();
@@ -2368,7 +2656,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     }
   }
   showCardMenu(e, item, lane) {
-    const menu = new import_obsidian.Menu();
+    const menu = new import_obsidian2.Menu();
     menu.addItem((mi) => mi.setTitle(t("card.edit")).setIcon("pencil").onClick(() => {
       this.openCardEditor(item, lane);
     }));
@@ -2382,13 +2670,35 @@ var KanbanView = class extends import_obsidian.ItemView {
       this.render();
       this.scheduleSave();
     }));
-    menu.addItem((mi) => mi.setTitle(t("card.create-note")).setIcon("file-plus").onClick(async () => await this.createLinkedNote(item)));
-    const wikilinkMatch = item.title.match(/\[\[([^\]]+)\]\]/);
-    if (wikilinkMatch) {
-      menu.addItem((mi) => mi.setTitle(t("card.open-note")).setIcon("file-text").onClick(async () => {
-        var _a;
-        await this.app.workspace.openLinkText(wikilinkMatch[1].split("|")[0], ((_a = this.file) == null ? void 0 : _a.path) || "");
-      }));
+    if (this.plugin.settings.linkedNotesEnabled && this.plugin.settings.linkedNoteFolder) {
+      if (item.linkedNotePath) {
+        menu.addItem((mi) => mi.setTitle(t("card.open-note")).setIcon("file-text").onClick(async () => {
+          var _a;
+          const file = this.app.vault.getAbstractFileByPath(item.linkedNotePath);
+          if (file instanceof import_obsidian2.TFile) {
+            await this.app.workspace.openLinkText(item.linkedNotePath, ((_a = this.file) == null ? void 0 : _a.path) || "");
+          } else {
+            item.linkedNotePath = null;
+            await this.createLinkedNoteForCard(item, lane);
+          }
+        }));
+        menu.addItem((mi) => mi.setTitle(t("card.unlink-note")).setIcon("link-2-off").onClick(() => {
+          item.linkedNotePath = null;
+          this.render();
+          this.scheduleSave();
+        }));
+      } else {
+        menu.addItem((mi) => mi.setTitle(t("card.create-note")).setIcon("file-plus").onClick(async () => await this.createLinkedNoteForCard(item, lane)));
+      }
+    } else {
+      menu.addItem((mi) => mi.setTitle(t("card.create-note")).setIcon("file-plus").onClick(async () => await this.createLinkedNote(item)));
+      const wikilinkMatch = item.title.match(/\[\[([^\]]+)\]\]/);
+      if (wikilinkMatch) {
+        menu.addItem((mi) => mi.setTitle(t("card.open-note")).setIcon("file-text").onClick(async () => {
+          var _a;
+          await this.app.workspace.openLinkText(wikilinkMatch[1].split("|")[0], ((_a = this.file) == null ? void 0 : _a.path) || "");
+        }));
+      }
     }
     menu.addSeparator();
     if (this.isChildItem(item, lane)) {
@@ -2409,12 +2719,35 @@ var KanbanView = class extends import_obsidian.ItemView {
     menu.addItem((mi) => mi.setTitle(t("card.delete")).setIcon("trash").onClick(() => this.deleteItem(item, lane)));
     this.showMenuAtEvent(menu, e);
   }
+  async createLinkedNoteForCard(item, lane) {
+    if (!this.board || !this.file) return;
+    const baseFolder = this.plugin.settings.linkedNoteFolder;
+    if (!baseFolder) return;
+    if (!this.board.settings.boardUuid) {
+      this.board.settings.boardUuid = crypto.randomUUID();
+    }
+    const notePath = await createOrUpdateLinkedNote(
+      this.app,
+      item,
+      lane,
+      this.board,
+      this.file.path,
+      baseFolder
+    );
+    if (notePath) {
+      item.linkedNotePath = notePath;
+      this.render();
+      this.scheduleSave();
+      await this.app.workspace.openLinkText(notePath, this.file.path);
+    }
+  }
+  /** Legacy linked note creation (for context menu when linked notes feature is disabled) */
   async createLinkedNote(item) {
     var _a, _b, _c;
     const cleanTitle = item.title.replace(/#[^\s#]+/g, "").replace(/@\{\d{4}-\d{2}-\d{2}\}/g, "").replace(/\[\[[^\]]+\]\]/g, "").trim();
     const noteName = cleanTitle || "Untitled";
     const folder = ((_b = (_a = this.file) == null ? void 0 : _a.parent) == null ? void 0 : _b.path) || "";
-    const notePath = (0, import_obsidian.normalizePath)(folder ? `${folder}/${noteName}.md` : `${noteName}.md`);
+    const notePath = (0, import_obsidian2.normalizePath)(folder ? `${folder}/${noteName}.md` : `${noteName}.md`);
     if (!this.app.vault.getAbstractFileByPath(notePath)) await this.app.vault.create(notePath, `# ${noteName}
 `);
     if (!item.title.includes("[[")) {
@@ -2425,7 +2758,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     await this.app.workspace.openLinkText(noteName, ((_c = this.file) == null ? void 0 : _c.path) || "");
   }
   showLaneMenu(e, lane) {
-    const menu = new import_obsidian.Menu();
+    const menu = new import_obsidian2.Menu();
     menu.addItem((mi) => mi.setTitle(t("lane.set-wip-limit")).setIcon("alert-circle").onClick(() => new WipLimitModal(this.app, lane, (limit) => {
       lane.wipLimit = limit;
       this.render();
@@ -2466,7 +2799,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     });
   }
 };
-var WipLimitModal = class extends import_obsidian.Modal {
+var WipLimitModal = class extends import_obsidian2.Modal {
   constructor(app, lane, onSubmit) {
     super(app);
     this.lane = lane;
@@ -2476,7 +2809,7 @@ var WipLimitModal = class extends import_obsidian.Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.createEl("h3", { text: t("modal.wip-limit-title") });
-    new import_obsidian.Setting(contentEl).setName(t("modal.wip-limit-name")).setDesc(t("modal.wip-limit-desc")).addText((text) => {
+    new import_obsidian2.Setting(contentEl).setName(t("modal.wip-limit-name")).setDesc(t("modal.wip-limit-desc")).addText((text) => {
       text.setValue(String(this.lane.wipLimit || ""));
       text.inputEl.type = "number";
       text.inputEl.min = "0";
@@ -2485,7 +2818,7 @@ var WipLimitModal = class extends import_obsidian.Modal {
         if (e.key === "Enter") this.submit(text.getValue());
       });
     });
-    new import_obsidian.Setting(contentEl).addButton((btn) => btn.setButtonText(t("modal.save")).setCta().onClick(() => {
+    new import_obsidian2.Setting(contentEl).addButton((btn) => btn.setButtonText(t("modal.save")).setCta().onClick(() => {
       const inp = contentEl.querySelector("input");
       this.submit((inp == null ? void 0 : inp.value) || "0");
     })).addButton((btn) => btn.setButtonText(t("modal.cancel")).onClick(() => this.close()));
@@ -2498,7 +2831,7 @@ var WipLimitModal = class extends import_obsidian.Modal {
     this.contentEl.empty();
   }
 };
-var ConfirmDeleteModal = class extends import_obsidian.Modal {
+var ConfirmDeleteModal = class extends import_obsidian2.Modal {
   constructor(app, nameOrTitle, cardCount, onConfirm, heading, confirmText) {
     super(app);
     this.message = cardCount > 0 ? t("lane.delete-confirm", { count: cardCount }) : `"${nameOrTitle}" \u2014 ${heading || t("modal.delete")}?`;
@@ -2511,7 +2844,7 @@ var ConfirmDeleteModal = class extends import_obsidian.Modal {
     contentEl.empty();
     contentEl.createEl("h3", { text: this.heading });
     contentEl.createEl("p", { text: this.message });
-    new import_obsidian.Setting(contentEl).addButton((btn) => btn.setButtonText(this.confirmText).setWarning().onClick(() => {
+    new import_obsidian2.Setting(contentEl).addButton((btn) => btn.setButtonText(this.confirmText).setWarning().onClick(() => {
       this.onConfirm();
       this.close();
     })).addButton((btn) => btn.setButtonText(t("modal.cancel")).onClick(() => this.close()));
@@ -2520,7 +2853,7 @@ var ConfirmDeleteModal = class extends import_obsidian.Modal {
     this.contentEl.empty();
   }
 };
-var CardEditorModal = class extends import_obsidian.Modal {
+var CardEditorModal = class extends import_obsidian2.Modal {
   constructor(app, item, onSave) {
     super(app);
     this.item = item;
@@ -2532,7 +2865,7 @@ var CardEditorModal = class extends import_obsidian.Modal {
     contentEl.addClass("kanban-matsuo-card-editor");
     contentEl.createEl("h3", { text: t("card-editor.title") });
     let titleValue = this.item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim();
-    const titleSetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.card-title"));
+    const titleSetting = new import_obsidian2.Setting(contentEl).setName(t("card-editor.card-title"));
     const titleInput = titleSetting.controlEl.createEl("textarea", {
       cls: "kanban-matsuo-editor-textarea",
       attr: {
@@ -2542,7 +2875,7 @@ var CardEditorModal = class extends import_obsidian.Modal {
       }
     });
     titleInput.value = titleValue;
-    const tagsSetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.tags")).setDesc(t("card-editor.tags-desc"));
+    const tagsSetting = new import_obsidian2.Setting(contentEl).setName(t("card-editor.tags")).setDesc(t("card-editor.tags-desc"));
     const tagsInput = tagsSetting.controlEl.createEl("input", {
       cls: "kanban-matsuo-editor-input",
       attr: {
@@ -2552,19 +2885,19 @@ var CardEditorModal = class extends import_obsidian.Modal {
       }
     });
     tagsInput.value = this.item.tags.join(", ");
-    const startSetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.start-date"));
+    const startSetting = new import_obsidian2.Setting(contentEl).setName(t("card-editor.start-date"));
     const startInput = startSetting.controlEl.createEl("input", {
       cls: "kanban-matsuo-editor-input",
       attr: { type: "date", "aria-label": t("card-editor.start-date") }
     });
     startInput.value = this.item.startDate || "";
-    const endSetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.end-date"));
+    const endSetting = new import_obsidian2.Setting(contentEl).setName(t("card-editor.end-date"));
     const endInput = endSetting.controlEl.createEl("input", {
       cls: "kanban-matsuo-editor-input",
       attr: { type: "date", "aria-label": t("card-editor.end-date") }
     });
     endInput.value = this.item.endDate || "";
-    const bodySetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.body"));
+    const bodySetting = new import_obsidian2.Setting(contentEl).setName(t("card-editor.body"));
     const bodyInput = bodySetting.controlEl.createEl("textarea", {
       cls: "kanban-matsuo-editor-textarea",
       attr: {
@@ -2574,7 +2907,7 @@ var CardEditorModal = class extends import_obsidian.Modal {
       }
     });
     bodyInput.value = this.item.body || "";
-    new import_obsidian.Setting(contentEl).addButton((btn) => {
+    new import_obsidian2.Setting(contentEl).addButton((btn) => {
       btn.setButtonText(t("modal.save")).setCta().onClick(() => {
         this.saveAndClose(titleInput, tagsInput, startInput, endInput, bodyInput);
       });
@@ -2612,7 +2945,7 @@ var CardEditorModal = class extends import_obsidian.Modal {
     this.contentEl.empty();
   }
 };
-var ArchiveModal = class extends import_obsidian.Modal {
+var ArchiveModal = class extends import_obsidian2.Modal {
   constructor(app, board, onUpdate) {
     super(app);
     this.board = board;
@@ -2679,8 +3012,8 @@ var ArchiveModal = class extends import_obsidian.Modal {
 };
 
 // src/settings.ts
-var import_obsidian2 = require("obsidian");
-var KanbanSettingTab = class extends import_obsidian2.PluginSettingTab {
+var import_obsidian3 = require("obsidian");
+var KanbanSettingTab = class extends import_obsidian3.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -2688,21 +3021,21 @@ var KanbanSettingTab = class extends import_obsidian2.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian2.Setting(containerEl).setName(t("settings.language")).setDesc(t("settings.language-desc")).addDropdown(
+    new import_obsidian3.Setting(containerEl).setName(t("settings.language")).setDesc(t("settings.language-desc")).addDropdown(
       (dropdown) => dropdown.addOption("auto", t("settings.language-auto")).addOption("en", "English").addOption("ja", "\u65E5\u672C\u8A9E").setValue(this.plugin.settings.language).onChange(async (value) => {
         this.plugin.settings.language = value;
         await this.plugin.saveSettings();
         this.display();
       })
     );
-    new import_obsidian2.Setting(containerEl).setName(t("settings.board-defaults")).setHeading();
-    new import_obsidian2.Setting(containerEl).setName(t("settings.default-lanes")).setDesc(t("settings.default-lanes-desc")).addText(
+    new import_obsidian3.Setting(containerEl).setName(t("settings.board-defaults")).setHeading();
+    new import_obsidian3.Setting(containerEl).setName(t("settings.default-lanes")).setDesc(t("settings.default-lanes-desc")).addText(
       (text) => text.setPlaceholder("To Do, In Progress, Done").setValue(this.plugin.settings.defaultLanes.join(", ")).onChange(async (value) => {
         this.plugin.settings.defaultLanes = value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian2.Setting(containerEl).setName(t("settings.lane-width")).setDesc(t("settings.lane-width-desc")).addText(
+    new import_obsidian3.Setting(containerEl).setName(t("settings.lane-width")).setDesc(t("settings.lane-width-desc")).addText(
       (text) => text.setPlaceholder("272").setValue(String(this.plugin.settings.laneWidth)).onChange(async (value) => {
         const num = parseInt(value, 10);
         if (num > 0) {
@@ -2711,27 +3044,27 @@ var KanbanSettingTab = class extends import_obsidian2.PluginSettingTab {
         }
       })
     );
-    new import_obsidian2.Setting(containerEl).setName(t("settings.display")).setHeading();
-    new import_obsidian2.Setting(containerEl).setName(t("settings.show-tags")).setDesc(t("settings.show-tags-desc")).addToggle(
+    new import_obsidian3.Setting(containerEl).setName(t("settings.display")).setHeading();
+    new import_obsidian3.Setting(containerEl).setName(t("settings.show-tags")).setDesc(t("settings.show-tags-desc")).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showTags).onChange(async (value) => {
         this.plugin.settings.showTags = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian2.Setting(containerEl).setName(t("settings.show-dates")).setDesc(t("settings.show-dates-desc")).addToggle(
+    new import_obsidian3.Setting(containerEl).setName(t("settings.show-dates")).setDesc(t("settings.show-dates-desc")).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showDates).onChange(async (value) => {
         this.plugin.settings.showDates = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian2.Setting(containerEl).setName(t("settings.show-checkboxes")).setDesc(t("settings.show-checkboxes-desc")).addToggle(
+    new import_obsidian3.Setting(containerEl).setName(t("settings.show-checkboxes")).setDesc(t("settings.show-checkboxes-desc")).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showCheckboxes).onChange(async (value) => {
         this.plugin.settings.showCheckboxes = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian2.Setting(containerEl).setName(t("settings.performance")).setHeading();
-    new import_obsidian2.Setting(containerEl).setName(t("settings.auto-save-delay")).setDesc(t("settings.auto-save-delay-desc")).addText(
+    new import_obsidian3.Setting(containerEl).setName(t("settings.performance")).setHeading();
+    new import_obsidian3.Setting(containerEl).setName(t("settings.auto-save-delay")).setDesc(t("settings.auto-save-delay-desc")).addText(
       (text) => text.setPlaceholder("500").setValue(String(this.plugin.settings.autoSaveDelay)).onChange(async (value) => {
         const num = parseInt(value, 10);
         if (num >= 100) {
@@ -2740,7 +3073,7 @@ var KanbanSettingTab = class extends import_obsidian2.PluginSettingTab {
         }
       })
     );
-    new import_obsidian2.Setting(containerEl).setName(t("settings.timezone")).setDesc(t("settings.timezone-desc")).addDropdown((dropdown) => {
+    new import_obsidian3.Setting(containerEl).setName(t("settings.timezone")).setDesc(t("settings.timezone-desc")).addDropdown((dropdown) => {
       const zones = [
         ["local", t("settings.timezone-local")],
         ["UTC", "UTC (\xB10:00)"],
@@ -2771,8 +3104,42 @@ var KanbanSettingTab = class extends import_obsidian2.PluginSettingTab {
         await this.plugin.saveSettings();
       });
     });
-    new import_obsidian2.Setting(containerEl).setName(t("settings.input")).setHeading();
-    new import_obsidian2.Setting(containerEl).setName(t("settings.newline-key")).setDesc(t("settings.newline-key-desc")).addDropdown(
+    new import_obsidian3.Setting(containerEl).setName(t("settings.linked-notes")).setHeading();
+    new import_obsidian3.Setting(containerEl).setName(t("settings.linked-notes-enabled")).setDesc(t("settings.linked-notes-enabled-desc")).addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.linkedNotesEnabled).onChange(async (value) => {
+        this.plugin.settings.linkedNotesEnabled = value;
+        await this.plugin.saveSettings();
+        this.display();
+      })
+    );
+    if (this.plugin.settings.linkedNotesEnabled) {
+      const folderSetting = new import_obsidian3.Setting(containerEl).setName(t("settings.linked-note-folder")).setDesc(t("settings.linked-note-folder-desc")).addText(
+        (text) => text.setPlaceholder(t("settings.linked-note-folder-placeholder")).setValue(this.plugin.settings.linkedNoteFolder).onChange(async (value) => {
+          this.plugin.settings.linkedNoteFolder = value.trim();
+          await this.plugin.saveSettings();
+          this.display();
+        })
+      );
+      const folderPath = this.plugin.settings.linkedNoteFolder;
+      if (!folderPath) {
+        const warningEl = folderSetting.controlEl.createDiv({ cls: "kanban-matsuo-setting-warning" });
+        warningEl.setText(t("settings.linked-note-folder-warning"));
+        warningEl.style.color = "var(--text-error)";
+        warningEl.style.fontSize = "0.85em";
+        warningEl.style.marginTop = "4px";
+      } else {
+        const folder = this.app.vault.getAbstractFileByPath(folderPath);
+        if (!(folder instanceof import_obsidian3.TFolder)) {
+          const warningEl = folderSetting.controlEl.createDiv({ cls: "kanban-matsuo-setting-warning" });
+          warningEl.setText(t("settings.linked-note-folder-warning"));
+          warningEl.style.color = "var(--text-error)";
+          warningEl.style.fontSize = "0.85em";
+          warningEl.style.marginTop = "4px";
+        }
+      }
+    }
+    new import_obsidian3.Setting(containerEl).setName(t("settings.input")).setHeading();
+    new import_obsidian3.Setting(containerEl).setName(t("settings.newline-key")).setDesc(t("settings.newline-key-desc")).addDropdown(
       (dropdown) => dropdown.addOption("shift+enter", "Shift + Enter").addOption("ctrl+enter", "Ctrl + Enter").addOption("alt+enter", "Alt + Enter").setValue(this.plugin.settings.newlineKey).onChange(async (value) => {
         this.plugin.settings.newlineKey = value;
         await this.plugin.saveSettings();
@@ -2782,7 +3149,7 @@ var KanbanSettingTab = class extends import_obsidian2.PluginSettingTab {
 };
 
 // src/main.ts
-var LaneSuggestModal = class extends import_obsidian3.FuzzySuggestModal {
+var LaneSuggestModal = class extends import_obsidian4.FuzzySuggestModal {
   constructor(app, lanes, onChoose) {
     super(app);
     this.lanes = lanes;
@@ -2799,7 +3166,7 @@ var LaneSuggestModal = class extends import_obsidian3.FuzzySuggestModal {
     this.onChoose(item);
   }
 };
-var CardSuggestModal = class extends import_obsidian3.FuzzySuggestModal {
+var CardSuggestModal = class extends import_obsidian4.FuzzySuggestModal {
   constructor(app, items, onChoose) {
     super(app);
     this.items = items;
@@ -2816,7 +3183,7 @@ var CardSuggestModal = class extends import_obsidian3.FuzzySuggestModal {
     this.onChoose(item.lane, item.card);
   }
 };
-var CardTitleModal = class extends import_obsidian3.FuzzySuggestModal {
+var CardTitleModal = class extends import_obsidian4.FuzzySuggestModal {
   constructor(app, onChoose) {
     super(app);
     this.onChoose = onChoose;
@@ -2841,7 +3208,7 @@ var CardTitleModal = class extends import_obsidian3.FuzzySuggestModal {
     }
   }
 };
-var KanbanPlugin = class extends import_obsidian3.Plugin {
+var KanbanPlugin = class extends import_obsidian4.Plugin {
   constructor() {
     super(...arguments);
     this.settings = DEFAULT_PLUGIN_SETTINGS;
@@ -2852,7 +3219,7 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
     this.registerView(KANBAN_VIEW_TYPE, (leaf) => new KanbanView(leaf, this));
     this.registerEvent(
       this.app.workspace.on("file-open", async (file) => {
-        if (file instanceof import_obsidian3.TFile && await this.isKanbanFile(file)) {
+        if (file instanceof import_obsidian4.TFile && await this.isKanbanFile(file)) {
           await this.openKanbanView(file);
         }
       })
@@ -2869,7 +3236,7 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
       name: t("command.toggle-board-view"),
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveFile();
-        if (file instanceof import_obsidian3.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian4.TFile && file.extension === "md") {
           if (!checking) {
             this.toggleKanbanView(file);
           }
@@ -2884,7 +3251,7 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
       checkCallback: (checking) => {
         var _a;
         const file = this.app.workspace.getActiveFile();
-        if (!file || !(file instanceof import_obsidian3.TFile)) return false;
+        if (!file || !(file instanceof import_obsidian4.TFile)) return false;
         const leaves = this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE);
         const activeView = (_a = leaves.find(
           (l) => {
@@ -2905,7 +3272,7 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
       checkCallback: (checking) => {
         var _a;
         const file = this.app.workspace.getActiveFile();
-        if (!file || !(file instanceof import_obsidian3.TFile)) return false;
+        if (!file || !(file instanceof import_obsidian4.TFile)) return false;
         const leaves = this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE);
         const activeView = (_a = leaves.find(
           (l) => {
@@ -2931,7 +3298,7 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
           item.setTitle(t("command.create-new-board")).setIcon("layout-dashboard").onClick(async () => {
             var _a, _b;
             await this.createNewBoardInFolder(
-              file instanceof import_obsidian3.TFile ? (_b = (_a = file.parent) == null ? void 0 : _a.path) != null ? _b : "" : file.path
+              file instanceof import_obsidian4.TFile ? (_b = (_a = file.parent) == null ? void 0 : _a.path) != null ? _b : "" : file.path
             );
           });
         });
@@ -3030,13 +3397,13 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
     const baseName = t("board.kanban-board");
     let fileName = `${baseName}.md`;
     let counter = 1;
-    while (this.app.vault.getAbstractFileByPath((0, import_obsidian3.normalizePath)(`${folder}/${fileName}`))) {
+    while (this.app.vault.getAbstractFileByPath((0, import_obsidian4.normalizePath)(`${folder}/${fileName}`))) {
       fileName = `${baseName} ${counter}.md`;
       counter++;
     }
-    const filePath = (0, import_obsidian3.normalizePath)(folder ? `${folder}/${fileName}` : fileName);
+    const filePath = (0, import_obsidian4.normalizePath)(folder ? `${folder}/${fileName}` : fileName);
     const file = await this.app.vault.create(filePath, content);
-    if (file instanceof import_obsidian3.TFile) {
+    if (file instanceof import_obsidian4.TFile) {
       await this.openKanbanView(file);
     }
   }
@@ -3047,7 +3414,7 @@ var KanbanPlugin = class extends import_obsidian3.Plugin {
   commandAddCardToLane(view) {
     const board = view.getBoard();
     if (!board) {
-      new import_obsidian3.Notice(t("modal.select-lane"));
+      new import_obsidian4.Notice(t("modal.select-lane"));
       return;
     }
     const laneNames = board.lanes.map((l) => l.title);

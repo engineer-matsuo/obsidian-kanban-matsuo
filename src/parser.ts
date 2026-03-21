@@ -22,6 +22,7 @@ export function createItem(title: string): KanbanItem {
 		checked: false,
 		archived: false,
 		children: [],
+		linkedNotePath: null,
 	};
 }
 
@@ -44,7 +45,7 @@ export function createLane(title: string): KanbanLane {
 export function createBoard(laneNames: string[]): KanbanBoard {
 	return {
 		lanes: laneNames.map((name) => createLane(name)),
-		settings: { ...DEFAULT_BOARD_SETTINGS },
+		settings: { ...DEFAULT_BOARD_SETTINGS, boardUuid: crypto.randomUUID() },
 	};
 }
 
@@ -156,6 +157,14 @@ export function parseMarkdown(content: string): KanbanBoard {
 				continue;
 			}
 
+			// Linked note comment in archive
+			const archiveLinkedPath = parseLinkedComment(line);
+			if (archiveLinkedPath !== null) {
+				const curA = getCurrentItem();
+				if (curA) curA.linkedNotePath = archiveLinkedPath;
+				continue;
+			}
+
 			// Body lines
 			const cur = getCurrentItem();
 			if (cur && line.match(/^\s{4}/) && line.trim().length > 0 && !line.match(/^\s*[-*]\s/)) {
@@ -178,6 +187,14 @@ export function parseMarkdown(content: string): KanbanBoard {
 		const parsed = parseCardLine(line, itemStack, currentLane, false);
 		if (parsed) {
 			itemStack = parsed;
+			continue;
+		}
+
+		// Linked note comment: <!-- linked:path/to/note.md -->
+		const linkedPath = parseLinkedComment(line);
+		if (linkedPath !== null) {
+			const cur = getCurrentItem();
+			if (cur) cur.linkedNotePath = linkedPath;
 			continue;
 		}
 
@@ -262,6 +279,9 @@ function parseFrontmatterLine(line: string, settings: typeof DEFAULT_BOARD_SETTI
 		case 'show-checkboxes':
 			settings.showCheckboxes = value.trim() === 'true';
 			break;
+		case 'board-uuid':
+			settings.boardUuid = value.trim();
+			break;
 	}
 }
 
@@ -284,6 +304,15 @@ function parseItemText(rawText: string): KanbanItem {
 }
 
 /**
+ * Try to parse a linked-note comment line: <!-- linked:path/to/note.md -->
+ * Returns the path if matched, otherwise null.
+ */
+function parseLinkedComment(line: string): string | null {
+	const m = line.match(/^\s*<!--\s*linked:(.+?)\s*-->$/);
+	return m ? m[1] : null;
+}
+
+/**
  * Convert a KanbanBoard back to Markdown string.
  */
 export function boardToMarkdown(board: KanbanBoard): string {
@@ -296,6 +325,9 @@ export function boardToMarkdown(board: KanbanBoard): string {
 	lines.push(`show-tags: ${board.settings.showTags}`);
 	lines.push(`show-dates: ${board.settings.showDates}`);
 	lines.push(`show-checkboxes: ${board.settings.showCheckboxes}`);
+	if (board.settings.boardUuid) {
+		lines.push(`board-uuid: ${board.settings.boardUuid}`);
+	}
 	lines.push('---');
 	lines.push('');
 
@@ -349,6 +381,11 @@ function serializeItem(item: KanbanItem, lines: string[], depth: number, showChe
 	}
 	line += item.title;
 	lines.push(line);
+
+	// Linked note comment
+	if (item.linkedNotePath) {
+		lines.push(`${indent}<!-- linked:${item.linkedNotePath} -->`);
+	}
 
 	// Body
 	if (item.body) {

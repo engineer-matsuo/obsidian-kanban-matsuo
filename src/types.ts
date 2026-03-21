@@ -8,6 +8,7 @@ export interface KanbanItem {
 	checked: boolean;
 	archived: boolean;
 	children: KanbanItem[];
+	linkedNotePath: string | null;
 }
 
 export interface KanbanLane {
@@ -28,6 +29,7 @@ export interface KanbanBoardSettings {
 	showTags: boolean;
 	showDates: boolean;
 	showCheckboxes: boolean;
+	boardUuid: string;
 }
 
 export interface KanbanPluginSettings {
@@ -40,6 +42,8 @@ export interface KanbanPluginSettings {
 	language: 'auto' | 'en' | 'ja';
 	newlineKey: 'shift+enter' | 'ctrl+enter' | 'alt+enter';
 	timezone: string;
+	linkedNotesEnabled: boolean;
+	linkedNoteFolder: string;
 }
 
 export const DEFAULT_PLUGIN_SETTINGS: KanbanPluginSettings = {
@@ -52,6 +56,8 @@ export const DEFAULT_PLUGIN_SETTINGS: KanbanPluginSettings = {
 	language: 'auto',
 	newlineKey: 'shift+enter',
 	timezone: 'local',
+	linkedNotesEnabled: false,
+	linkedNoteFolder: '',
 };
 
 export const DEFAULT_BOARD_SETTINGS: KanbanBoardSettings = {
@@ -59,4 +65,5 @@ export const DEFAULT_BOARD_SETTINGS: KanbanBoardSettings = {
 	showTags: true,
 	showDates: true,
 	showCheckboxes: true,
+	boardUuid: '',
 };

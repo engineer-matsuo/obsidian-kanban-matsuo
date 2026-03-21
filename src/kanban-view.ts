@@ -21,6 +21,7 @@ import {
 	createLane,
 } from './parser';
 import { t } from './lang';
+import { createOrUpdateLinkedNote, syncAllLinkedNotes } from './linked-notes';
 
 export const KANBAN_VIEW_TYPE = 'kanban-matsuo-view';
 
@@ -106,6 +107,12 @@ export class KanbanView extends ItemView {
 		this.file = file;
 		const content = await this.app.vault.read(file);
 		this.board = parseMarkdown(content);
+		// Assign UUID to boards that don't have one
+		if (!this.board.settings.boardUuid) {
+			this.board.settings.boardUuid = crypto.randomUUID();
+			this.ignoreModifyCount++;
+			await this.app.vault.process(file, () => boardToMarkdown(this.board!));
+		}
 		this.render();
 	}
 
@@ -166,6 +173,21 @@ export class KanbanView extends ItemView {
 		this.ignoreModifyCount++;
 		const board = this.board;
 		await this.app.vault.process(this.file, () => boardToMarkdown(board));
+
+		// Sync linked notes if feature is enabled
+		if (this.plugin.settings.linkedNotesEnabled && this.plugin.settings.linkedNoteFolder) {
+			const changed = await syncAllLinkedNotes(
+				this.app,
+				board,
+				this.file.path,
+				this.plugin.settings.linkedNoteFolder,
+			);
+			if (changed) {
+				// linkedNotePath was cleared for deleted notes — save again
+				this.ignoreModifyCount++;
+				await this.app.vault.process(this.file, () => boardToMarkdown(board));
+			}
+		}
 	}
 
 	private render(): void {
@@ -329,6 +351,24 @@ export class KanbanView extends ItemView {
 				this.scheduleSave();
 			}).open();
 		});
+
+		// Board UUID label (read-only, click to copy)
+		if (this.board.settings.boardUuid) {
+			const uuid = this.board.settings.boardUuid;
+			const uuidLabel = rightGroup.createSpan({
+				cls: 'kanban-matsuo-board-uuid',
+				text: `ID: ${uuid}`,
+				attr: {
+					'aria-label': t('board.uuid-click-to-copy'),
+					'data-tooltip-position': 'top',
+				},
+			});
+			uuidLabel.addEventListener('click', async () => {
+				await navigator.clipboard.writeText(uuid);
+				uuidLabel.setText(`ID: ${uuid} ✓`);
+				window.setTimeout(() => uuidLabel.setText(`ID: ${uuid}`), 1500);
+			});
+		}
 	}
 
 	private countArchivedItems(): number {
@@ -781,8 +821,37 @@ export class KanbanView extends ItemView {
 			});
 		}
 
-		// Spacer to push archive button to the right
+		// Spacer to push action buttons to the right
 		btnRow.createDiv({ cls: 'kanban-matsuo-indent-spacer' });
+
+		// Linked note button (only when feature is enabled and folder is set)
+		if (this.plugin.settings.linkedNotesEnabled && this.plugin.settings.linkedNoteFolder) {
+			const isLinked = !!item.linkedNotePath;
+			const linkBtn = btnRow.createEl('button', {
+				cls: 'kanban-matsuo-card-link-btn clickable-icon',
+				attr: {
+					'aria-label': isLinked ? t('card.open-note') : t('card.create-note'),
+					'data-tooltip-position': 'top',
+				},
+			});
+			setIcon(linkBtn, isLinked ? 'file-text' : 'file-plus');
+			linkBtn.addEventListener('click', async (e) => {
+				e.stopPropagation();
+				if (isLinked && item.linkedNotePath) {
+					// Check file still exists before opening
+					const file = this.app.vault.getAbstractFileByPath(item.linkedNotePath);
+					if (file instanceof TFile) {
+						await this.app.workspace.openLinkText(item.linkedNotePath, this.file?.path || '');
+					} else {
+						// File was deleted externally — clear and recreate
+						item.linkedNotePath = null;
+						await this.createLinkedNoteForCard(item, lane);
+					}
+				} else {
+					await this.createLinkedNoteForCard(item, lane);
+				}
+			});
+		}
 
 		// Archive button
 		const archiveBtn = btnRow.createEl('button', {
@@ -2046,13 +2115,39 @@ export class KanbanView extends ItemView {
 		menu.addItem((mi) => mi.setTitle(t('card.archive')).setIcon('archive')
 			.onClick(() => { item.archived = true; this.render(); this.scheduleSave(); }));
 
-		menu.addItem((mi) => mi.setTitle(t('card.create-note')).setIcon('file-plus')
-			.onClick(async () => await this.createLinkedNote(item)));
+		// Linked notes menu items
+		if (this.plugin.settings.linkedNotesEnabled && this.plugin.settings.linkedNoteFolder) {
+			if (item.linkedNotePath) {
+				menu.addItem((mi) => mi.setTitle(t('card.open-note')).setIcon('file-text')
+					.onClick(async () => {
+						const file = this.app.vault.getAbstractFileByPath(item.linkedNotePath!);
+						if (file instanceof TFile) {
+							await this.app.workspace.openLinkText(item.linkedNotePath!, this.file?.path || '');
+						} else {
+							item.linkedNotePath = null;
+							await this.createLinkedNoteForCard(item, lane);
+						}
+					}));
+				menu.addItem((mi) => mi.setTitle(t('card.unlink-note')).setIcon('link-2-off')
+					.onClick(() => {
+						item.linkedNotePath = null;
+						this.render();
+						this.scheduleSave();
+					}));
+			} else {
+				menu.addItem((mi) => mi.setTitle(t('card.create-note')).setIcon('file-plus')
+					.onClick(async () => await this.createLinkedNoteForCard(item, lane)));
+			}
+		} else {
+			// Legacy behavior when linked notes feature is disabled
+			menu.addItem((mi) => mi.setTitle(t('card.create-note')).setIcon('file-plus')
+				.onClick(async () => await this.createLinkedNote(item)));
 
-		const wikilinkMatch = item.title.match(/\[\[([^\]]+)\]\]/);
-		if (wikilinkMatch) {
-			menu.addItem((mi) => mi.setTitle(t('card.open-note')).setIcon('file-text')
-				.onClick(async () => { await this.app.workspace.openLinkText(wikilinkMatch[1].split('|')[0], this.file?.path || ''); }));
+			const wikilinkMatch = item.title.match(/\[\[([^\]]+)\]\]/);
+			if (wikilinkMatch) {
+				menu.addItem((mi) => mi.setTitle(t('card.open-note')).setIcon('file-text')
+					.onClick(async () => { await this.app.workspace.openLinkText(wikilinkMatch[1].split('|')[0], this.file?.path || ''); }));
+			}
 		}
 
 		menu.addSeparator();
@@ -2081,6 +2176,33 @@ export class KanbanView extends ItemView {
 		this.showMenuAtEvent(menu, e);
 	}
 
+	private async createLinkedNoteForCard(item: KanbanItem, lane: KanbanLane): Promise<void> {
+		if (!this.board || !this.file) return;
+		const baseFolder = this.plugin.settings.linkedNoteFolder;
+		if (!baseFolder) return;
+
+		// Ensure board has a UUID
+		if (!this.board.settings.boardUuid) {
+			this.board.settings.boardUuid = crypto.randomUUID();
+		}
+
+		const notePath = await createOrUpdateLinkedNote(
+			this.app,
+			item,
+			lane,
+			this.board,
+			this.file.path,
+			baseFolder,
+		);
+		if (notePath) {
+			item.linkedNotePath = notePath;
+			this.render();
+			this.scheduleSave();
+			await this.app.workspace.openLinkText(notePath, this.file.path);
+		}
+	}
+
+	/** Legacy linked note creation (for context menu when linked notes feature is disabled) */
 	private async createLinkedNote(item: KanbanItem): Promise<void> {
 		const cleanTitle = item.title.replace(/#[^\s#]+/g, '').replace(/@\{\d{4}-\d{2}-\d{2}\}/g, '').replace(/\[\[[^\]]+\]\]/g, '').trim();
 		const noteName = cleanTitle || 'Untitled';
