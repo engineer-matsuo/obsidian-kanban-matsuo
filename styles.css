@@ -4,11 +4,12 @@
  * All selectors are scoped with .kanban-matsuo-* prefix.
  * ============================================= */
 
-/* Container */
+/* Container: split layout - board scrolls, WBS fixed at bottom */
 .kanban-matsuo-container {
 	display: flex;
 	flex-direction: column;
-	overflow-y: auto;
+	height: 100%;
+	overflow: hidden;
 }
 
 /* Toolbar */
@@ -57,13 +58,14 @@
 	outline-offset: 1px;
 }
 
-/* Board */
+/* Board: scrolls both directions, takes remaining space */
 .kanban-matsuo-board {
 	display: flex;
 	gap: var(--size-4-3);
 	padding: var(--size-4-3);
-	overflow-x: auto;
-	min-height: 100vh;
+	overflow: auto;
+	flex: 1;
+	min-height: 0;
 	align-items: flex-start;
 }
 
@@ -351,6 +353,31 @@
 .kanban-matsuo-filter-btn:focus-visible {
 	outline: 2px solid var(--interactive-accent);
 	outline-offset: 1px;
+}
+
+/* Active filter badge */
+.kanban-matsuo-filter-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	padding: var(--size-2-1) var(--size-4-2);
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	white-space: nowrap;
+}
+
+.kanban-matsuo-filter-clear-btn {
+	min-width: 20px;
+	min-height: 20px;
+	color: var(--text-on-accent);
+	opacity: 0.8;
+}
+
+.kanban-matsuo-filter-clear-btn:hover {
+	opacity: 1;
 }
 
 .kanban-matsuo-filter-clear {
@@ -663,10 +690,13 @@ span.kanban-matsuo-subtask-done {
 	color: var(--interactive-accent);
 }
 
-/* WBS / Gantt section */
+/* WBS / Gantt section: fixed 30% at bottom */
 .kanban-matsuo-wbs {
 	border-top: 2px solid var(--background-modifier-border);
-	min-height: 100vh;
+	height: 30vh;
+	min-height: 200px;
+	flex-shrink: 0;
+	overflow: hidden;
 }
 
 /* Gantt: div-based rows for perfect alignment */
@@ -674,6 +704,42 @@ span.kanban-matsuo-subtask-done {
 	overflow: auto;
 	height: 100%;
 	font-size: var(--font-ui-small);
+	position: relative;
+}
+
+/* Scroll hint: fade on right edge */
+.kanban-matsuo-wbs::after {
+	content: '';
+	position: sticky;
+	right: 0;
+	top: 0;
+	width: 40px;
+	height: 100%;
+	pointer-events: none;
+	background: linear-gradient(to right, transparent, var(--background-primary) 80%);
+	z-index: 10;
+	display: block;
+	float: right;
+	margin-top: -100%;
+}
+
+/* Horizontal scrollbar always visible */
+.kanban-matsuo-gantt-wrapper::-webkit-scrollbar {
+	height: 10px;
+}
+
+.kanban-matsuo-gantt-wrapper::-webkit-scrollbar-track {
+	background: var(--background-secondary);
+	border-radius: 5px;
+}
+
+.kanban-matsuo-gantt-wrapper::-webkit-scrollbar-thumb {
+	background: var(--background-modifier-border);
+	border-radius: 5px;
+}
+
+.kanban-matsuo-gantt-wrapper::-webkit-scrollbar-thumb:hover {
+	background: var(--text-muted);
 }
 
 /* Each row: left fixed + right flows */
@@ -692,14 +758,15 @@ span.kanban-matsuo-subtask-done {
 	flex-shrink: 0;
 	position: sticky;
 	top: 0;
-	z-index: 3;
+	z-index: 10;
 }
 
 .kanban-matsuo-gantt-hdr:nth-child(2) {
 	top: 28px;
+	z-index: 9;
 }
 
-/* Left cell: task name + progress */
+/* Left cell: task name + days - stays above gantt bars when scrolling */
 .kanban-matsuo-gantt-left-cell {
 	flex-shrink: 0;
 	width: 300px;
@@ -713,12 +780,12 @@ span.kanban-matsuo-subtask-done {
 	background: var(--background-primary);
 	position: sticky;
 	left: 0;
-	z-index: 1;
+	z-index: 5;
 }
 
 .kanban-matsuo-gantt-hdr .kanban-matsuo-gantt-left-cell {
 	background: var(--background-secondary);
-	z-index: 2;
+	z-index: 11;
 }
 
 .kanban-matsuo-gantt-hdr-cell {
@@ -915,13 +982,13 @@ span.kanban-matsuo-subtask-done {
 	background: rgba(255, 255, 255, 0.3);
 }
 
-/* Empty cell click hint */
-.kanban-matsuo-gantt-cell:not(:has(.kanban-matsuo-gantt-bar)) {
-	cursor: pointer;
+/* Gantt area: grab cursor for panning */
+.kanban-matsuo-gantt-right-cells {
+	cursor: grab;
 }
 
-.kanban-matsuo-gantt-cell:not(:has(.kanban-matsuo-gantt-bar)):hover {
-	background: color-mix(in srgb, var(--interactive-accent) 15%, transparent);
+.kanban-matsuo-gantt-right-cells:active {
+	cursor: grabbing;
 }
 
 /* Mobile responsive */

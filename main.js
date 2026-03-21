@@ -634,11 +634,15 @@ var KanbanView = class extends import_obsidian.ItemView {
     // Rich card display toggle
     this.richMode = false;
     // WBS view toggle
-    this.showWbs = false;
+    this.showWbs = true;
     this.ganttDragging = false;
     this.ganttSortedIds = [];
     // External change detection (counter to handle concurrent saves)
     this.ignoreModifyCount = 0;
+    /**
+     * Auto-scroll the gantt wrapper when mouse is near edges during drag.
+     */
+    this.ganttAutoScrollTimer = null;
     // Drag state for indent detection
     this.dragOriginX = 0;
     this.dragOriginDepth = 0;
@@ -795,8 +799,21 @@ var KanbanView = class extends import_obsidian.ItemView {
     (0, import_obsidian.setIcon)(dateFilterBtn, "calendar");
     dateFilterBtn.addEventListener("click", (e) => this.showDateFilterMenu(e));
     if (this.filterMode !== "none") {
-      const clearBtn = leftGroup.createEl("button", {
-        cls: "kanban-matsuo-filter-clear clickable-icon",
+      let filterLabel = "";
+      if (this.filterMode === "tag") {
+        filterLabel = `#${this.filterValue}`;
+      } else if (this.filterMode === "date") {
+        const dateLabels = {
+          "overdue": t("filter.overdue"),
+          "today": t("filter.today"),
+          "week": t("filter.this-week"),
+          "none": t("filter.no-date")
+        };
+        filterLabel = dateLabels[this.filterValue] || this.filterValue;
+      }
+      const filterBadge = leftGroup.createSpan({ cls: "kanban-matsuo-filter-badge", text: filterLabel });
+      const clearBtn = filterBadge.createEl("button", {
+        cls: "kanban-matsuo-filter-clear-btn clickable-icon",
         attr: { "aria-label": t("filter.clear"), "data-tooltip-position": "top" }
       });
       (0, import_obsidian.setIcon)(clearBtn, "x");
@@ -1326,6 +1343,47 @@ var KanbanView = class extends import_obsidian.ItemView {
     const dates = this.generateDateRange(rangeStart, rangeEnd);
     const wbsContainer = container.createDiv({ cls: "kanban-matsuo-wbs" });
     const wrapper = wbsContainer.createDiv({ cls: "kanban-matsuo-gantt-wrapper" });
+    wrapper.addEventListener("wheel", (e) => {
+      if (e.shiftKey) {
+        e.preventDefault();
+        wrapper.scrollLeft += e.deltaY;
+      }
+    }, { passive: false });
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let panScrollLeft = 0;
+    let panScrollTop = 0;
+    wrapper.addEventListener("mousedown", (e) => {
+      const target = e.target;
+      if (target.closest(".kanban-matsuo-gantt-bar-continuous, .kanban-matsuo-gantt-handle")) return;
+      if (e.button === 0 && (target.closest(".kanban-matsuo-gantt-right-cells") || target.closest(".kanban-matsuo-gantt-wrapper"))) {
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        panScrollLeft = wrapper.scrollLeft;
+        panScrollTop = wrapper.scrollTop;
+        wrapper.style.cursor = "grabbing";
+        e.preventDefault();
+      }
+    });
+    wrapper.addEventListener("mousemove", (e) => {
+      if (!isPanning) return;
+      wrapper.scrollLeft = panScrollLeft - (e.clientX - panStartX);
+      wrapper.scrollTop = panScrollTop - (e.clientY - panStartY);
+    });
+    wrapper.addEventListener("mouseup", () => {
+      if (isPanning) {
+        isPanning = false;
+        wrapper.style.cursor = "";
+      }
+    });
+    wrapper.addEventListener("mouseleave", () => {
+      if (isPanning) {
+        isPanning = false;
+        wrapper.style.cursor = "";
+      }
+    });
     const hdr1 = wrapper.createDiv({ cls: "kanban-matsuo-gantt-row kanban-matsuo-gantt-hdr" });
     hdr1.createDiv({ cls: "kanban-matsuo-gantt-left-cell kanban-matsuo-gantt-hdr-cell", text: t("wbs.title") });
     const hdr1Right = hdr1.createDiv({ cls: "kanban-matsuo-gantt-right-cells kanban-matsuo-gantt-hdr-cell" });
@@ -1506,6 +1564,31 @@ var KanbanView = class extends import_obsidian.ItemView {
       bar.remove();
     }
   }
+  startGanttAutoScroll(ev) {
+    const wrapper = this.contentEl.querySelector(".kanban-matsuo-gantt-wrapper");
+    if (!wrapper) return;
+    const rect = wrapper.getBoundingClientRect();
+    const edgeZone = 60;
+    const speed = 8;
+    if (this.ganttAutoScrollTimer !== null) {
+      window.clearInterval(this.ganttAutoScrollTimer);
+      this.ganttAutoScrollTimer = null;
+    }
+    let scrollDx = 0;
+    if (ev.clientX > rect.right - edgeZone) scrollDx = speed;
+    else if (ev.clientX < rect.left + 300 + edgeZone && wrapper.scrollLeft > 0) scrollDx = -speed;
+    if (scrollDx !== 0) {
+      this.ganttAutoScrollTimer = window.setInterval(() => {
+        wrapper.scrollLeft += scrollDx;
+      }, 16);
+    }
+  }
+  stopGanttAutoScroll() {
+    if (this.ganttAutoScrollTimer !== null) {
+      window.clearInterval(this.ganttAutoScrollTimer);
+      this.ganttAutoScrollTimer = null;
+    }
+  }
   setupGanttBarDrag(bar, item, dates) {
     let startX = 0;
     let origStart = "";
@@ -1520,6 +1603,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       this.ganttDragging = true;
       const cellWidth = 28;
       const onMouseMove = (ev) => {
+        this.startGanttAutoScroll(ev);
         const dx = ev.clientX - startX;
         const dayShift = Math.round(dx / cellWidth);
         if (dayShift === 0) return;
@@ -1536,6 +1620,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       const onMouseUp = () => {
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseup", onMouseUp);
+        this.stopGanttAutoScroll();
         this.ganttDragging = false;
         this.scheduleSave();
         this.render();
@@ -1553,6 +1638,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       const cellWidth = 28;
       this.ganttDragging = true;
       const onMouseMove = (ev) => {
+        this.startGanttAutoScroll(ev);
         const dx = ev.clientX - startX;
         const dayShift = Math.round(dx / cellWidth);
         if (dayShift === 0) return;
@@ -1573,6 +1659,7 @@ var KanbanView = class extends import_obsidian.ItemView {
       const onMouseUp = () => {
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseup", onMouseUp);
+        this.stopGanttAutoScroll();
         this.ganttDragging = false;
         this.scheduleSave();
         this.render();

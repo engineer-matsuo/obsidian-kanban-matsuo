@@ -53,7 +53,7 @@ export class KanbanView extends ItemView {
 	private richMode = false;
 
 	// WBS view toggle
-	private showWbs = false;
+	private showWbs = true;
 	private ganttDragging = false;
 	private ganttSortedIds: string[] = [];
 
@@ -245,8 +245,24 @@ export class KanbanView extends ItemView {
 		dateFilterBtn.addEventListener('click', (e) => this.showDateFilterMenu(e));
 
 		if (this.filterMode !== 'none') {
-			const clearBtn = leftGroup.createEl('button', {
-				cls: 'kanban-matsuo-filter-clear clickable-icon',
+			// Filter label
+			let filterLabel = '';
+			if (this.filterMode === 'tag') {
+				filterLabel = `#${this.filterValue}`;
+			} else if (this.filterMode === 'date') {
+				const dateLabels: Record<string, string> = {
+					'overdue': t('filter.overdue'),
+					'today': t('filter.today'),
+					'week': t('filter.this-week'),
+					'none': t('filter.no-date'),
+				};
+				filterLabel = dateLabels[this.filterValue] || this.filterValue;
+			}
+
+			const filterBadge = leftGroup.createSpan({ cls: 'kanban-matsuo-filter-badge', text: filterLabel });
+
+			const clearBtn = filterBadge.createEl('button', {
+				cls: 'kanban-matsuo-filter-clear-btn clickable-icon',
 				attr: { 'aria-label': t('filter.clear'), 'data-tooltip-position': 'top' },
 			});
 			setIcon(clearBtn, 'x');
@@ -834,6 +850,59 @@ export class KanbanView extends ItemView {
 		const wbsContainer = container.createDiv({ cls: 'kanban-matsuo-wbs' });
 		const wrapper = wbsContainer.createDiv({ cls: 'kanban-matsuo-gantt-wrapper' });
 
+		// Shift+wheel → horizontal scroll, normal wheel → vertical scroll
+		wrapper.addEventListener('wheel', (e) => {
+			if (e.shiftKey) {
+				e.preventDefault();
+				wrapper.scrollLeft += e.deltaY;
+			}
+			// Normal wheel: let default vertical scroll happen
+		}, { passive: false });
+
+		// Click+drag on empty area to pan (grab and move)
+		let isPanning = false;
+		let panStartX = 0;
+		let panStartY = 0;
+		let panScrollLeft = 0;
+		let panScrollTop = 0;
+
+		wrapper.addEventListener('mousedown', (e) => {
+			// Only start pan if clicking on empty area (not on a bar or handle)
+			const target = e.target as HTMLElement;
+			if (target.closest('.kanban-matsuo-gantt-bar-continuous, .kanban-matsuo-gantt-handle')) return;
+
+			// Left click on the gantt area (cells, right-cells, or wrapper itself)
+			if (e.button === 0 && (target.closest('.kanban-matsuo-gantt-right-cells') || target.closest('.kanban-matsuo-gantt-wrapper'))) {
+				isPanning = true;
+				panStartX = e.clientX;
+				panStartY = e.clientY;
+				panScrollLeft = wrapper.scrollLeft;
+				panScrollTop = wrapper.scrollTop;
+				wrapper.style.cursor = 'grabbing';
+				e.preventDefault();
+			}
+		});
+
+		wrapper.addEventListener('mousemove', (e) => {
+			if (!isPanning) return;
+			wrapper.scrollLeft = panScrollLeft - (e.clientX - panStartX);
+			wrapper.scrollTop = panScrollTop - (e.clientY - panStartY);
+		});
+
+		wrapper.addEventListener('mouseup', () => {
+			if (isPanning) {
+				isPanning = false;
+				wrapper.style.cursor = '';
+			}
+		});
+
+		wrapper.addEventListener('mouseleave', () => {
+			if (isPanning) {
+				isPanning = false;
+				wrapper.style.cursor = '';
+			}
+		});
+
 		// HEADER ROW 1: month (each cell = 28px, label on first day of month)
 		const hdr1 = wrapper.createDiv({ cls: 'kanban-matsuo-gantt-row kanban-matsuo-gantt-hdr' });
 		hdr1.createDiv({ cls: 'kanban-matsuo-gantt-left-cell kanban-matsuo-gantt-hdr-cell', text: t('wbs.title') });
@@ -1049,6 +1118,42 @@ export class KanbanView extends ItemView {
 		}
 	}
 
+	/**
+	 * Auto-scroll the gantt wrapper when mouse is near edges during drag.
+	 */
+	private ganttAutoScrollTimer: number | null = null;
+
+	private startGanttAutoScroll(ev: MouseEvent): void {
+		const wrapper = this.contentEl.querySelector('.kanban-matsuo-gantt-wrapper') as HTMLElement | null;
+		if (!wrapper) return;
+
+		const rect = wrapper.getBoundingClientRect();
+		const edgeZone = 60;
+		const speed = 8;
+
+		if (this.ganttAutoScrollTimer !== null) {
+			window.clearInterval(this.ganttAutoScrollTimer);
+			this.ganttAutoScrollTimer = null;
+		}
+
+		let scrollDx = 0;
+		if (ev.clientX > rect.right - edgeZone) scrollDx = speed;
+		else if (ev.clientX < rect.left + 300 + edgeZone && wrapper.scrollLeft > 0) scrollDx = -speed;
+
+		if (scrollDx !== 0) {
+			this.ganttAutoScrollTimer = window.setInterval(() => {
+				wrapper.scrollLeft += scrollDx;
+			}, 16);
+		}
+	}
+
+	private stopGanttAutoScroll(): void {
+		if (this.ganttAutoScrollTimer !== null) {
+			window.clearInterval(this.ganttAutoScrollTimer);
+			this.ganttAutoScrollTimer = null;
+		}
+	}
+
 	private setupGanttBarDrag(bar: HTMLElement, item: KanbanItem, dates: string[]): void {
 		let startX = 0;
 		let origStart = '';
@@ -1068,6 +1173,8 @@ export class KanbanView extends ItemView {
 			const cellWidth = 28;
 
 			const onMouseMove = (ev: MouseEvent) => {
+				this.startGanttAutoScroll(ev);
+
 				const dx = ev.clientX - startX;
 				const dayShift = Math.round(dx / cellWidth);
 				if (dayShift === 0) return;
@@ -1088,6 +1195,7 @@ export class KanbanView extends ItemView {
 			const onMouseUp = () => {
 				document.removeEventListener('mousemove', onMouseMove);
 				document.removeEventListener('mouseup', onMouseUp);
+				this.stopGanttAutoScroll();
 				this.ganttDragging = false;
 				this.scheduleSave();
 				this.render();
@@ -1109,6 +1217,8 @@ export class KanbanView extends ItemView {
 			this.ganttDragging = true;
 
 			const onMouseMove = (ev: MouseEvent) => {
+				this.startGanttAutoScroll(ev);
+
 				const dx = ev.clientX - startX;
 				const dayShift = Math.round(dx / cellWidth);
 				if (dayShift === 0) return;
@@ -1134,6 +1244,7 @@ export class KanbanView extends ItemView {
 			const onMouseUp = () => {
 				document.removeEventListener('mousemove', onMouseMove);
 				document.removeEventListener('mouseup', onMouseUp);
+				this.stopGanttAutoScroll();
 				this.ganttDragging = false;
 				this.scheduleSave();
 				this.render();
