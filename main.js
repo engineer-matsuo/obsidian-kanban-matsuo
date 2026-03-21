@@ -422,9 +422,9 @@ var en = {
   "card-editor.start-date": "Start date",
   "card-editor.end-date": "End date",
   // WBS
-  "wbs.title": "WBS",
-  "wbs.toggle-show": "Show WBS",
-  "wbs.toggle-hide": "Hide WBS",
+  "wbs.title": "Gantt Chart",
+  "wbs.toggle-show": "Show Gantt chart",
+  "wbs.toggle-hide": "Hide Gantt chart",
   "wbs.col-id": "#",
   "wbs.col-task": "Task",
   "wbs.col-lane": "Lane",
@@ -433,6 +433,7 @@ var en = {
   "wbs.col-end": "End",
   "wbs.col-status": "Status",
   "wbs.col-days": "Days",
+  "wbs.col-progress": "%",
   "wbs.days": "{{days}}d",
   "wbs.status-done": "Done",
   "wbs.status-open": "Open"
@@ -566,9 +567,9 @@ var ja = {
   "card-editor.start-date": "\u958B\u59CB\u65E5",
   "card-editor.end-date": "\u7D42\u4E86\u65E5",
   // WBS
-  "wbs.title": "WBS",
-  "wbs.toggle-show": "WBS\u3092\u8868\u793A",
-  "wbs.toggle-hide": "WBS\u3092\u975E\u8868\u793A",
+  "wbs.title": "\u30AC\u30F3\u30C8\u30C1\u30E3\u30FC\u30C8",
+  "wbs.toggle-show": "\u30AC\u30F3\u30C8\u30C1\u30E3\u30FC\u30C8\u3092\u8868\u793A",
+  "wbs.toggle-hide": "\u30AC\u30F3\u30C8\u30C1\u30E3\u30FC\u30C8\u3092\u975E\u8868\u793A",
   "wbs.col-id": "#",
   "wbs.col-task": "\u30BF\u30B9\u30AF",
   "wbs.col-lane": "\u30EC\u30FC\u30F3",
@@ -577,6 +578,7 @@ var ja = {
   "wbs.col-end": "\u7D42\u4E86",
   "wbs.col-status": "\u72B6\u614B",
   "wbs.col-days": "\u65E5\u6570",
+  "wbs.col-progress": "%",
   "wbs.days": "{{days}}\u65E5",
   "wbs.status-done": "\u5B8C\u4E86",
   "wbs.status-open": "\u672A\u5B8C\u4E86"
@@ -1137,7 +1139,10 @@ var KanbanView = class extends import_obsidian.ItemView {
       checkboxEl.checked = item.checked;
       checkboxEl.addEventListener("change", () => {
         item.checked = checkboxEl.checked;
-        cardEl.toggleClass("kanban-matsuo-card-checked", item.checked);
+        if (item.checked && item.children.length > 0) {
+          this.setAllChecked(item.children, true);
+        }
+        this.render();
         this.scheduleSave();
       });
     }
@@ -1316,6 +1321,12 @@ var KanbanView = class extends import_obsidian.ItemView {
     }
     return null;
   }
+  setAllChecked(items, checked) {
+    for (const item of items) {
+      item.checked = checked;
+      this.setAllChecked(item.children, checked);
+    }
+  }
   countChildren(children) {
     let done = 0, total = 0;
     for (const c of children) {
@@ -1440,7 +1451,10 @@ var KanbanView = class extends import_obsidian.ItemView {
     const hdr2 = wrapper.createDiv({ cls: "kanban-matsuo-gantt-row kanban-matsuo-gantt-hdr" });
     const hdr2Left = hdr2.createDiv({ cls: "kanban-matsuo-gantt-left-cell kanban-matsuo-gantt-hdr-cell" });
     hdr2Left.createSpan({ text: t("wbs.col-task"), cls: "kanban-matsuo-gantt-hdr-task" });
-    hdr2Left.createSpan({ text: t("wbs.col-days"), cls: "kanban-matsuo-gantt-hdr-progress" });
+    hdr2Left.createSpan({ text: t("wbs.col-start"), cls: "kanban-matsuo-gantt-hdr-date" });
+    hdr2Left.createSpan({ text: t("wbs.col-end"), cls: "kanban-matsuo-gantt-hdr-date" });
+    hdr2Left.createSpan({ text: t("wbs.col-days"), cls: "kanban-matsuo-gantt-hdr-num" });
+    hdr2Left.createSpan({ text: t("wbs.col-progress"), cls: "kanban-matsuo-gantt-hdr-num" });
     const hdr2Right = hdr2.createDiv({ cls: "kanban-matsuo-gantt-right-cells kanban-matsuo-gantt-hdr-cell" });
     for (const d of dates) {
       const dayCell = hdr2Right.createDiv({ cls: "kanban-matsuo-gantt-day-cell" });
@@ -1456,18 +1470,33 @@ var KanbanView = class extends import_obsidian.ItemView {
         attr: { "data-gantt-id": item.id }
       });
       const leftCell = row.createDiv({ cls: "kanban-matsuo-gantt-left-cell" });
-      const taskSpan = leftCell.createSpan({ cls: "kanban-matsuo-gantt-task" });
-      if (depth > 0) taskSpan.style.setProperty("--gantt-depth", `${depth}`);
-      taskSpan.setText(`${depth > 0 ? "\u2514 " : ""}${item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim()}`);
-      leftCell.createSpan({ cls: "kanban-matsuo-gantt-progress", text: (() => {
+      const taskLink = leftCell.createEl("a", {
+        cls: "kanban-matsuo-gantt-task kanban-matsuo-gantt-task-link",
+        attr: { href: "#" }
+      });
+      if (depth > 0) taskLink.style.setProperty("--gantt-depth", `${depth}`);
+      taskLink.setText(`${depth > 0 ? "\u2514 " : ""}${item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim()}`);
+      taskLink.addEventListener("click", (e) => {
+        e.preventDefault();
+        this.openCardEditor(item, null);
+      });
+      leftCell.createSpan({ cls: "kanban-matsuo-gantt-date-col", text: item.startDate || "-" });
+      leftCell.createSpan({ cls: "kanban-matsuo-gantt-date-col", text: item.endDate || "-" });
+      leftCell.createSpan({ cls: "kanban-matsuo-gantt-num-col", text: (() => {
         const s = item.startDate || item.endDate;
         const e = item.endDate || item.startDate;
         if (s && e) {
           const ms = (/* @__PURE__ */ new Date(e + "T00:00:00")).getTime() - (/* @__PURE__ */ new Date(s + "T00:00:00")).getTime();
-          const days = Math.round(ms / 864e5) + 1;
-          return t("wbs.days", { days });
+          return t("wbs.days", { days: Math.round(ms / 864e5) + 1 });
         }
         return "-";
+      })() });
+      leftCell.createSpan({ cls: "kanban-matsuo-gantt-num-col", text: (() => {
+        if (item.children.length > 0) {
+          const { done, total } = this.countChildren(item.children);
+          return total > 0 ? `${Math.round(done / total * 100)}%` : "0%";
+        }
+        return item.checked ? "100%" : "0%";
       })() });
       const rightCells = row.createDiv({ cls: "kanban-matsuo-gantt-right-cells" });
       const isParent = item.children.length > 0;
@@ -1602,7 +1631,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     }
     let scrollDx = 0;
     if (ev.clientX > rect.right - edgeZone) scrollDx = speed;
-    else if (ev.clientX < rect.left + 300 + edgeZone && wrapper.scrollLeft > 0) scrollDx = -speed;
+    else if (ev.clientX < rect.left + 540 + edgeZone && wrapper.scrollLeft > 0) scrollDx = -speed;
     if (scrollDx !== 0) {
       this.ganttAutoScrollTimer = window.setInterval(() => {
         wrapper.scrollLeft += scrollDx;
@@ -1626,7 +1655,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     const bar = row.querySelector(".kanban-matsuo-gantt-bar-continuous");
     if (bar) {
       const barLeft = parseInt(bar.style.getPropertyValue("left") || "0", 10);
-      const leftColWidth = 300;
+      const leftColWidth = 540;
       targetLeft = Math.max(0, barLeft - leftColWidth - 50);
     }
     wrapper.scrollTo({
@@ -2251,7 +2280,7 @@ var CardEditorModal = class extends import_obsidian.Modal {
     contentEl.empty();
     contentEl.addClass("kanban-matsuo-card-editor");
     contentEl.createEl("h3", { text: t("card-editor.title") });
-    let titleValue = this.item.title.replace(/#[^\s#]+/g, "").replace(/@\{\d{4}-\d{2}-\d{2}\}/g, "").trim();
+    let titleValue = this.item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim();
     const titleSetting = new import_obsidian.Setting(contentEl).setName(t("card-editor.card-title"));
     const titleInput = titleSetting.controlEl.createEl("textarea", {
       cls: "kanban-matsuo-editor-textarea",

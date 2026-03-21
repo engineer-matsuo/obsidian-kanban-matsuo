@@ -147,9 +147,9 @@ export const ja: Record<TranslationKey, string> = {
 	'card-editor.end-date': '終了日',
 
 	// WBS
-	'wbs.title': 'WBS',
-	'wbs.toggle-show': 'WBSを表示',
-	'wbs.toggle-hide': 'WBSを非表示',
+	'wbs.title': 'ガントチャート',
+	'wbs.toggle-show': 'ガントチャートを表示',
+	'wbs.toggle-hide': 'ガントチャートを非表示',
 	'wbs.col-id': '#',
 	'wbs.col-task': 'タスク',
 	'wbs.col-lane': 'レーン',
@@ -158,6 +158,7 @@ export const ja: Record<TranslationKey, string> = {
 	'wbs.col-end': '終了',
 	'wbs.col-status': '状態',
 	'wbs.col-days': '日数',
+	'wbs.col-progress': '%',
 	'wbs.days': '{{days}}日',
 	'wbs.status-done': '完了',
 	'wbs.status-open': '未完了',

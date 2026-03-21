@@ -145,9 +145,9 @@ export const en = {
 	'card-editor.end-date': 'End date',
 
 	// WBS
-	'wbs.title': 'WBS',
-	'wbs.toggle-show': 'Show WBS',
-	'wbs.toggle-hide': 'Hide WBS',
+	'wbs.title': 'Gantt Chart',
+	'wbs.toggle-show': 'Show Gantt chart',
+	'wbs.toggle-hide': 'Hide Gantt chart',
 	'wbs.col-id': '#',
 	'wbs.col-task': 'Task',
 	'wbs.col-lane': 'Lane',
@@ -156,6 +156,7 @@ export const en = {
 	'wbs.col-end': 'End',
 	'wbs.col-status': 'Status',
 	'wbs.col-days': 'Days',
+	'wbs.col-progress': '%',
 	'wbs.days': '{{days}}d',
 	'wbs.status-done': 'Done',
 	'wbs.status-open': 'Open',

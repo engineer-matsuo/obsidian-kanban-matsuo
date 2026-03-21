@@ -593,7 +593,11 @@ export class KanbanView extends ItemView {
 			(checkboxEl as HTMLInputElement).checked = item.checked;
 			checkboxEl.addEventListener('change', () => {
 				item.checked = (checkboxEl as HTMLInputElement).checked;
-				cardEl.toggleClass('kanban-matsuo-card-checked', item.checked);
+				// If parent checked, check all children recursively
+				if (item.checked && item.children.length > 0) {
+					this.setAllChecked(item.children, true);
+				}
+				this.render();
 				this.scheduleSave();
 			});
 		}
@@ -818,6 +822,13 @@ export class KanbanView extends ItemView {
 		return null;
 	}
 
+	private setAllChecked(items: KanbanItem[], checked: boolean): void {
+		for (const item of items) {
+			item.checked = checked;
+			this.setAllChecked(item.children, checked);
+		}
+	}
+
 	private countChildren(children: KanbanItem[]): { done: number; total: number } {
 		let done = 0, total = 0;
 		for (const c of children) {
@@ -970,7 +981,10 @@ export class KanbanView extends ItemView {
 		const hdr2 = wrapper.createDiv({ cls: 'kanban-matsuo-gantt-row kanban-matsuo-gantt-hdr' });
 		const hdr2Left = hdr2.createDiv({ cls: 'kanban-matsuo-gantt-left-cell kanban-matsuo-gantt-hdr-cell' });
 		hdr2Left.createSpan({ text: t('wbs.col-task'), cls: 'kanban-matsuo-gantt-hdr-task' });
-		hdr2Left.createSpan({ text: t('wbs.col-days'), cls: 'kanban-matsuo-gantt-hdr-progress' });
+		hdr2Left.createSpan({ text: t('wbs.col-start'), cls: 'kanban-matsuo-gantt-hdr-date' });
+		hdr2Left.createSpan({ text: t('wbs.col-end'), cls: 'kanban-matsuo-gantt-hdr-date' });
+		hdr2Left.createSpan({ text: t('wbs.col-days'), cls: 'kanban-matsuo-gantt-hdr-num' });
+		hdr2Left.createSpan({ text: t('wbs.col-progress'), cls: 'kanban-matsuo-gantt-hdr-num' });
 		const hdr2Right = hdr2.createDiv({ cls: 'kanban-matsuo-gantt-right-cells kanban-matsuo-gantt-hdr-cell' });
 		for (const d of dates) {
 			const dayCell = hdr2Right.createDiv({ cls: 'kanban-matsuo-gantt-day-cell' });
@@ -991,18 +1005,41 @@ export class KanbanView extends ItemView {
 
 			// Left: task + progress
 			const leftCell = row.createDiv({ cls: 'kanban-matsuo-gantt-left-cell' });
-			const taskSpan = leftCell.createSpan({ cls: 'kanban-matsuo-gantt-task' });
-			if (depth > 0) taskSpan.style.setProperty('--gantt-depth', `${depth}`);
-			taskSpan.setText(`${depth > 0 ? '└ ' : ''}${item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim()}`);
-			leftCell.createSpan({ cls: 'kanban-matsuo-gantt-progress', text: (() => {
+			const taskLink = leftCell.createEl('a', {
+				cls: 'kanban-matsuo-gantt-task kanban-matsuo-gantt-task-link',
+				attr: { href: '#' },
+			});
+			if (depth > 0) taskLink.style.setProperty('--gantt-depth', `${depth}`);
+			taskLink.setText(`${depth > 0 ? '└ ' : ''}${item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim()}`);
+			taskLink.addEventListener('click', (e) => {
+				e.preventDefault();
+				this.openCardEditor(item, null as unknown as KanbanLane);
+			});
+
+			// Start date
+			leftCell.createSpan({ cls: 'kanban-matsuo-gantt-date-col', text: item.startDate || '-' });
+
+			// End date
+			leftCell.createSpan({ cls: 'kanban-matsuo-gantt-date-col', text: item.endDate || '-' });
+
+			// Days
+			leftCell.createSpan({ cls: 'kanban-matsuo-gantt-num-col', text: (() => {
 				const s = item.startDate || item.endDate;
 				const e = item.endDate || item.startDate;
 				if (s && e) {
 					const ms = new Date(e + 'T00:00:00').getTime() - new Date(s + 'T00:00:00').getTime();
-					const days = Math.round(ms / 86400000) + 1;
-					return t('wbs.days', { days });
+					return t('wbs.days', { days: Math.round(ms / 86400000) + 1 });
 				}
 				return '-';
+			})() });
+
+			// Progress % (based on children check count)
+			leftCell.createSpan({ cls: 'kanban-matsuo-gantt-num-col', text: (() => {
+				if (item.children.length > 0) {
+					const { done, total } = this.countChildren(item.children);
+					return total > 0 ? `${Math.round((done / total) * 100)}%` : '0%';
+				}
+				return item.checked ? '100%' : '0%';
 			})() });
 
 			// Right: date cells + continuous bar overlay
@@ -1169,7 +1206,7 @@ export class KanbanView extends ItemView {
 
 		let scrollDx = 0;
 		if (ev.clientX > rect.right - edgeZone) scrollDx = speed;
-		else if (ev.clientX < rect.left + 300 + edgeZone && wrapper.scrollLeft > 0) scrollDx = -speed;
+		else if (ev.clientX < rect.left + 540 + edgeZone && wrapper.scrollLeft > 0) scrollDx = -speed;
 
 		if (scrollDx !== 0) {
 			this.ganttAutoScrollTimer = window.setInterval(() => {
@@ -1202,7 +1239,7 @@ export class KanbanView extends ItemView {
 		const bar = row.querySelector('.kanban-matsuo-gantt-bar-continuous') as HTMLElement | null;
 		if (bar) {
 			const barLeft = parseInt(bar.style.getPropertyValue('left') || '0', 10);
-			const leftColWidth = 300;
+			const leftColWidth = 540;
 			targetLeft = Math.max(0, barLeft - leftColWidth - 50);
 		}
 
@@ -1880,7 +1917,7 @@ class CardEditorModal extends Modal {
 		// Title
 		let titleValue = this.item.title
 			.replace(/#[^\s#]+/g, '')
-			.replace(/@\{\d{4}-\d{2}-\d{2}\}/g, '')
+			.replace(/@\{[^}]*\}/g, '')
 			.trim();
 		const titleSetting = new Setting(contentEl)
 			.setName(t('card-editor.card-title'));
