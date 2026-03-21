@@ -131,6 +131,11 @@ export const en = {
 	'card.indent': 'Indent (make subtask)',
 	'card.outdent': 'Outdent (promote)',
 
+	// Drag hints
+	'drag.move-here': 'Move here',
+	'drag.indent': '→ Indent (subtask)',
+	'drag.outdent': '← Outdent',
+
 	// Rich card toggle
 	'board.rich-mode-on': 'Rich card view',
 	'board.rich-mode-off': 'Compact card view',
@@ -150,7 +155,8 @@ export const en = {
 	'wbs.col-start': 'Start',
 	'wbs.col-end': 'End',
 	'wbs.col-status': 'Status',
-	'wbs.col-progress': 'Progress',
+	'wbs.col-days': 'Days',
+	'wbs.days': '{{days}}d',
 	'wbs.status-done': 'Done',
 	'wbs.status-open': 'Open',
 };

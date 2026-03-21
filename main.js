@@ -411,6 +411,10 @@ var en = {
   // Indent buttons
   "card.indent": "Indent (make subtask)",
   "card.outdent": "Outdent (promote)",
+  // Drag hints
+  "drag.move-here": "Move here",
+  "drag.indent": "\u2192 Indent (subtask)",
+  "drag.outdent": "\u2190 Outdent",
   // Rich card toggle
   "board.rich-mode-on": "Rich card view",
   "board.rich-mode-off": "Compact card view",
@@ -428,7 +432,8 @@ var en = {
   "wbs.col-start": "Start",
   "wbs.col-end": "End",
   "wbs.col-status": "Status",
-  "wbs.col-progress": "Progress",
+  "wbs.col-days": "Days",
+  "wbs.days": "{{days}}d",
   "wbs.status-done": "Done",
   "wbs.status-open": "Open"
 };
@@ -550,6 +555,10 @@ var ja = {
   // Indent buttons
   "card.indent": "\u6BB5\u4E0B\u3052\uFF08\u30B5\u30D6\u30BF\u30B9\u30AF\u306B\u3059\u308B\uFF09",
   "card.outdent": "\u6BB5\u4E0A\u3052\uFF08\u5143\u306B\u623B\u3059\uFF09",
+  // Drag hints
+  "drag.move-here": "\u3053\u3053\u306B\u79FB\u52D5",
+  "drag.indent": "\u2192 \u6BB5\u4E0B\u3052\uFF08\u30B5\u30D6\u30BF\u30B9\u30AF\uFF09",
+  "drag.outdent": "\u2190 \u6BB5\u4E0A\u3052",
   // Rich card toggle
   "board.rich-mode-on": "\u30EA\u30C3\u30C1\u30AB\u30FC\u30C9\u8868\u793A",
   "board.rich-mode-off": "\u30B3\u30F3\u30D1\u30AF\u30C8\u30AB\u30FC\u30C9\u8868\u793A",
@@ -567,7 +576,8 @@ var ja = {
   "wbs.col-start": "\u958B\u59CB",
   "wbs.col-end": "\u7D42\u4E86",
   "wbs.col-status": "\u72B6\u614B",
-  "wbs.col-progress": "\u9032\u6357",
+  "wbs.col-days": "\u65E5\u6570",
+  "wbs.days": "{{days}}\u65E5",
   "wbs.status-done": "\u5B8C\u4E86",
   "wbs.status-open": "\u672A\u5B8C\u4E86"
 };
@@ -632,6 +642,8 @@ var KanbanView = class extends import_obsidian.ItemView {
     // Drag state for indent detection
     this.dragOriginX = 0;
     this.dragOriginDepth = 0;
+    this.lastDragAfterElId = null;
+    this.lastDragDepth = -1;
     this.plugin = plugin;
   }
   getViewType() {
@@ -990,11 +1002,21 @@ var KanbanView = class extends import_obsidian.ItemView {
       });
       listEl.addEventListener("dragover", (e) => {
         if (!this.draggedItem) return;
+        if (this.draggedFromLane !== lane) {
+          const rect = listEl.getBoundingClientRect();
+          const insetX = e.clientX - rect.left;
+          if (insetX < 40 || insetX > rect.width - 40) return;
+        }
         e.preventDefault();
         if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
         this.handleDragOver(e, listEl, lane);
       });
-      listEl.addEventListener("dragleave", () => this.removePlaceholder());
+      listEl.addEventListener("dragleave", () => {
+        var _a;
+        if (((_a = this.dragPlaceholder) == null ? void 0 : _a.parentElement) === listEl) {
+          this.removePlaceholder();
+        }
+      });
       listEl.addEventListener("drop", (e) => {
         if (!this.draggedItem) return;
         e.preventDefault();
@@ -1045,6 +1067,8 @@ var KanbanView = class extends import_obsidian.ItemView {
       cardEl.removeClass("kanban-matsuo-card-dragging");
       this.draggedItem = null;
       this.draggedFromLane = null;
+      this.lastDragAfterElId = null;
+      this.lastDragDepth = -1;
       this.removePlaceholder();
     });
     this.setupTouchDragCard(cardEl, item, lane);
@@ -1330,7 +1354,7 @@ var KanbanView = class extends import_obsidian.ItemView {
     const hdr2 = wrapper.createDiv({ cls: "kanban-matsuo-gantt-row kanban-matsuo-gantt-hdr" });
     const hdr2Left = hdr2.createDiv({ cls: "kanban-matsuo-gantt-left-cell kanban-matsuo-gantt-hdr-cell" });
     hdr2Left.createSpan({ text: t("wbs.col-task"), cls: "kanban-matsuo-gantt-hdr-task" });
-    hdr2Left.createSpan({ text: t("wbs.col-progress"), cls: "kanban-matsuo-gantt-hdr-progress" });
+    hdr2Left.createSpan({ text: t("wbs.col-days"), cls: "kanban-matsuo-gantt-hdr-progress" });
     const hdr2Right = hdr2.createDiv({ cls: "kanban-matsuo-gantt-right-cells kanban-matsuo-gantt-hdr-cell" });
     for (const d of dates) {
       const dayCell = hdr2Right.createDiv({ cls: "kanban-matsuo-gantt-day-cell" });
@@ -1350,12 +1374,14 @@ var KanbanView = class extends import_obsidian.ItemView {
       if (depth > 0) taskSpan.style.setProperty("--gantt-depth", `${depth}`);
       taskSpan.setText(`${depth > 0 ? "\u2514 " : ""}${item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim()}`);
       leftCell.createSpan({ cls: "kanban-matsuo-gantt-progress", text: (() => {
-        let pct = item.checked ? 100 : 0;
-        if (item.children.length > 0) {
-          const { done, total } = this.countChildren(item.children);
-          pct = total > 0 ? Math.round(done / total * 100) : 0;
+        const s = item.startDate || item.endDate;
+        const e = item.endDate || item.startDate;
+        if (s && e) {
+          const ms = (/* @__PURE__ */ new Date(e + "T00:00:00")).getTime() - (/* @__PURE__ */ new Date(s + "T00:00:00")).getTime();
+          const days = Math.round(ms / 864e5) + 1;
+          return t("wbs.days", { days });
         }
-        return `${pct}%`;
+        return "-";
       })() });
       const rightCells = row.createDiv({ cls: "kanban-matsuo-gantt-right-cells" });
       const isParent = item.children.length > 0;
@@ -1738,37 +1764,56 @@ var KanbanView = class extends import_obsidian.ItemView {
     });
   }
   handleDragOver(e, listEl, targetLane) {
+    var _a;
     if (!this.draggedItem) return;
-    this.removePlaceholder();
-    this.dragPlaceholder = listEl.createDiv({ cls: "kanban-matsuo-drop-placeholder" });
-    this.dragPlaceholder.remove();
     const afterEl = this.getDragAfterElement(listEl, e.clientY);
-    if (afterEl) listEl.insertBefore(this.dragPlaceholder, afterEl);
-    else listEl.appendChild(this.dragPlaceholder);
+    const afterElId = (afterEl == null ? void 0 : afterEl.getAttribute("data-item-id")) || null;
     const isCrossLane = this.draggedFromLane !== targetLane;
     let targetDepth = 0;
     if (!isCrossLane) {
-      const aboveEl = this.getCardAbovePlaceholder(listEl);
-      const aboveDepth = aboveEl ? this.getCardDepth(aboveEl) : -1;
       const dx = e.clientX - this.dragOriginX;
-      const depthDelta = Math.round(dx / 60);
+      const depthDelta = Math.round(dx / 30);
       targetDepth = Math.max(0, this.dragOriginDepth + depthDelta);
+      let aboveDepth = -1;
+      if (afterEl) {
+        let prev = afterEl.previousElementSibling;
+        while (prev && !prev.classList.contains("kanban-matsuo-card")) prev = prev.previousElementSibling;
+        if (prev instanceof HTMLElement) aboveDepth = this.getCardDepth(prev);
+      } else {
+        const allCards = listEl.querySelectorAll(".kanban-matsuo-card:not(.kanban-matsuo-card-dragging)");
+        const lastCard = allCards[allCards.length - 1];
+        if (lastCard) aboveDepth = this.getCardDepth(lastCard);
+      }
       targetDepth = Math.min(targetDepth, aboveDepth + 1);
     }
+    if (afterElId === this.lastDragAfterElId && targetDepth === this.lastDragDepth && ((_a = this.dragPlaceholder) == null ? void 0 : _a.parentElement) === listEl) {
+      return;
+    }
+    this.lastDragAfterElId = afterElId;
+    this.lastDragDepth = targetDepth;
+    if (this.dragPlaceholder && this.dragPlaceholder.parentElement !== listEl) {
+      this.dragPlaceholder.remove();
+      this.dragPlaceholder = null;
+    }
+    if (!this.dragPlaceholder) {
+      this.dragPlaceholder = listEl.createDiv({ cls: "kanban-matsuo-drop-placeholder" });
+    }
+    if (afterEl) {
+      listEl.insertBefore(this.dragPlaceholder, afterEl);
+    } else {
+      listEl.appendChild(this.dragPlaceholder);
+    }
     this.dragPlaceholder.style.setProperty("--card-depth", `${targetDepth}`);
-    if (targetDepth > 0) {
+    if (targetDepth > this.dragOriginDepth) {
       this.dragPlaceholder.addClass("kanban-matsuo-drop-placeholder-indented");
+      this.dragPlaceholder.setText(t("drag.indent"));
+    } else if (targetDepth < this.dragOriginDepth) {
+      this.dragPlaceholder.removeClass("kanban-matsuo-drop-placeholder-indented");
+      this.dragPlaceholder.setText(t("drag.outdent"));
     } else {
       this.dragPlaceholder.removeClass("kanban-matsuo-drop-placeholder-indented");
+      this.dragPlaceholder.setText(t("drag.move-here"));
     }
-  }
-  getCardAbovePlaceholder(listEl) {
-    let lastCard = null;
-    for (const child of Array.from(listEl.children)) {
-      if (child === this.dragPlaceholder) break;
-      if (child.classList.contains("kanban-matsuo-card")) lastCard = child;
-    }
-    return lastCard;
   }
   getCardDepth(el) {
     const depthStr = el.style.getPropertyValue("--card-depth");

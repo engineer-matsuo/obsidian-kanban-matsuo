@@ -8,8 +8,7 @@
 .kanban-matsuo-container {
 	display: flex;
 	flex-direction: column;
-	height: 100%;
-	overflow: hidden;
+	overflow-y: auto;
 }
 
 /* Toolbar */
@@ -64,8 +63,7 @@
 	gap: var(--size-4-3);
 	padding: var(--size-4-3);
 	overflow-x: auto;
-	overflow-y: hidden;
-	flex: 1;
+	min-height: 100vh;
 	align-items: flex-start;
 }
 
@@ -76,7 +74,6 @@
 	flex-shrink: 0;
 	width: var(--lane-width, 272px);
 	min-width: var(--lane-width, 272px);
-	max-height: 100%;
 	background: var(--background-secondary);
 	border-radius: var(--radius-m);
 	border: 1px solid var(--background-modifier-border);
@@ -635,15 +632,25 @@ span.kanban-matsuo-subtask-done {
 .kanban-matsuo-card-list .kanban-matsuo-drop-placeholder {
 	height: 80px;
 	min-height: 80px;
-	background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+	background: color-mix(in srgb, var(--interactive-accent) 15%, transparent);
 	border: 2px dashed var(--interactive-accent);
 	border-radius: var(--radius-s);
 	margin: var(--size-4-1) 0;
 	box-sizing: border-box;
+	margin-left: calc(var(--card-depth, 0) * 24px);
+	transition: margin-left 150ms ease, border-color 150ms ease, background 150ms ease;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
 }
 
-.kanban-matsuo-drop-placeholder-indented {
-	margin-left: calc(var(--card-depth, 0) * var(--size-4-4));
+/* Indented placeholder: strong visual for nesting */
+.kanban-matsuo-card-list .kanban-matsuo-drop-placeholder-indented {
+	border-color: var(--text-accent);
+	background: color-mix(in srgb, var(--text-accent) 20%, transparent);
+	border-left: 6px solid var(--text-accent);
 }
 
 /* WBS toggle button */
@@ -659,10 +666,7 @@ span.kanban-matsuo-subtask-done {
 /* WBS / Gantt section */
 .kanban-matsuo-wbs {
 	border-top: 2px solid var(--background-modifier-border);
-	flex-shrink: 0;
-	max-height: 45vh;
-	overflow: hidden;
-	min-height: 200px;
+	min-height: 100vh;
 }
 
 /* Gantt: div-based rows for perfect alignment */

@@ -133,6 +133,11 @@ export const ja: Record<TranslationKey, string> = {
 	'card.indent': '段下げ（サブタスクにする）',
 	'card.outdent': '段上げ（元に戻す）',
 
+	// Drag hints
+	'drag.move-here': 'ここに移動',
+	'drag.indent': '→ 段下げ（サブタスク）',
+	'drag.outdent': '← 段上げ',
+
 	// Rich card toggle
 	'board.rich-mode-on': 'リッチカード表示',
 	'board.rich-mode-off': 'コンパクトカード表示',
@@ -152,7 +157,8 @@ export const ja: Record<TranslationKey, string> = {
 	'wbs.col-start': '開始',
 	'wbs.col-end': '終了',
 	'wbs.col-status': '状態',
-	'wbs.col-progress': '進捗',
+	'wbs.col-days': '日数',
+	'wbs.days': '{{days}}日',
 	'wbs.status-done': '完了',
 	'wbs.status-open': '未完了',
 };

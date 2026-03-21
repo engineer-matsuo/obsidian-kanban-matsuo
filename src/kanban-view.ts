@@ -452,11 +452,24 @@ export class KanbanView extends ItemView {
 
 			listEl.addEventListener('dragover', (e) => {
 				if (!this.draggedItem) return;
+
+				// Cross-lane: only accept if mouse is well inside this lane (>40px from edge)
+				if (this.draggedFromLane !== lane) {
+					const rect = listEl.getBoundingClientRect();
+					const insetX = e.clientX - rect.left;
+					if (insetX < 40 || insetX > rect.width - 40) return;
+				}
+
 				e.preventDefault();
 				if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
 				this.handleDragOver(e, listEl, lane);
 			});
-			listEl.addEventListener('dragleave', () => this.removePlaceholder());
+			listEl.addEventListener('dragleave', () => {
+				// Only remove placeholder if leaving our own lane
+				if (this.dragPlaceholder?.parentElement === listEl) {
+					this.removePlaceholder();
+				}
+			});
 			listEl.addEventListener('drop', (e) => {
 				if (!this.draggedItem) return;
 				e.preventDefault();
@@ -506,7 +519,9 @@ export class KanbanView extends ItemView {
 		});
 		cardEl.addEventListener('dragend', () => {
 			cardEl.removeClass('kanban-matsuo-card-dragging');
-			this.draggedItem = null; this.draggedFromLane = null; this.removePlaceholder();
+			this.draggedItem = null; this.draggedFromLane = null;
+			this.lastDragAfterElId = null; this.lastDragDepth = -1;
+			this.removePlaceholder();
 		});
 
 		// Touch drag for card
@@ -852,7 +867,7 @@ export class KanbanView extends ItemView {
 		const hdr2 = wrapper.createDiv({ cls: 'kanban-matsuo-gantt-row kanban-matsuo-gantt-hdr' });
 		const hdr2Left = hdr2.createDiv({ cls: 'kanban-matsuo-gantt-left-cell kanban-matsuo-gantt-hdr-cell' });
 		hdr2Left.createSpan({ text: t('wbs.col-task'), cls: 'kanban-matsuo-gantt-hdr-task' });
-		hdr2Left.createSpan({ text: t('wbs.col-progress'), cls: 'kanban-matsuo-gantt-hdr-progress' });
+		hdr2Left.createSpan({ text: t('wbs.col-days'), cls: 'kanban-matsuo-gantt-hdr-progress' });
 		const hdr2Right = hdr2.createDiv({ cls: 'kanban-matsuo-gantt-right-cells kanban-matsuo-gantt-hdr-cell' });
 		for (const d of dates) {
 			const dayCell = hdr2Right.createDiv({ cls: 'kanban-matsuo-gantt-day-cell' });
@@ -877,12 +892,14 @@ export class KanbanView extends ItemView {
 			if (depth > 0) taskSpan.style.setProperty('--gantt-depth', `${depth}`);
 			taskSpan.setText(`${depth > 0 ? '└ ' : ''}${item.title.replace(/#[^\s#]+/g, '').replace(/@\{[^}]*\}/g, '').trim()}`);
 			leftCell.createSpan({ cls: 'kanban-matsuo-gantt-progress', text: (() => {
-				let pct = item.checked ? 100 : 0;
-				if (item.children.length > 0) {
-					const { done, total } = this.countChildren(item.children);
-					pct = total > 0 ? Math.round((done / total) * 100) : 0;
+				const s = item.startDate || item.endDate;
+				const e = item.endDate || item.startDate;
+				if (s && e) {
+					const ms = new Date(e + 'T00:00:00').getTime() - new Date(s + 'T00:00:00').getTime();
+					const days = Math.round(ms / 86400000) + 1;
+					return t('wbs.days', { days });
 				}
-				return `${pct}%`;
+				return '-';
 			})() });
 
 			// Right: date cells
@@ -1283,47 +1300,75 @@ export class KanbanView extends ItemView {
 	// Drag state for indent detection
 	private dragOriginX = 0;
 	private dragOriginDepth = 0;
+	private lastDragAfterElId: string | null = null;
+	private lastDragDepth = -1;
 
 	private handleDragOver(e: DragEvent, listEl: HTMLElement, targetLane: KanbanLane): void {
 		if (!this.draggedItem) return;
-		this.removePlaceholder();
-		this.dragPlaceholder = listEl.createDiv({ cls: 'kanban-matsuo-drop-placeholder' });
-		this.dragPlaceholder.remove();
 
+		// Find drop position
 		const afterEl = this.getDragAfterElement(listEl, e.clientY);
-		if (afterEl) listEl.insertBefore(this.dragPlaceholder, afterEl);
-		else listEl.appendChild(this.dragPlaceholder);
+		const afterElId = afterEl?.getAttribute('data-item-id') || null;
 
-		// Cross-lane: always top level (no indent)
+		// Calculate indent depth
 		const isCrossLane = this.draggedFromLane !== targetLane;
 		let targetDepth = 0;
-
 		if (!isCrossLane) {
-			// Same lane: calculate depth from drag offset
-			const aboveEl = this.getCardAbovePlaceholder(listEl);
-			const aboveDepth = aboveEl ? this.getCardDepth(aboveEl) : -1;
-
 			const dx = e.clientX - this.dragOriginX;
-			const depthDelta = Math.round(dx / 60);
+			const depthDelta = Math.round(dx / 30);
 			targetDepth = Math.max(0, this.dragOriginDepth + depthDelta);
+
+			// Clamp to card above + 1
+			let aboveDepth = -1;
+			if (afterEl) {
+				let prev = afterEl.previousElementSibling;
+				while (prev && !prev.classList.contains('kanban-matsuo-card')) prev = prev.previousElementSibling;
+				if (prev instanceof HTMLElement) aboveDepth = this.getCardDepth(prev);
+			} else {
+				const allCards = listEl.querySelectorAll('.kanban-matsuo-card:not(.kanban-matsuo-card-dragging)');
+				const lastCard = allCards[allCards.length - 1] as HTMLElement | undefined;
+				if (lastCard) aboveDepth = this.getCardDepth(lastCard);
+			}
 			targetDepth = Math.min(targetDepth, aboveDepth + 1);
 		}
 
+		// Skip DOM update if nothing changed
+		if (afterElId === this.lastDragAfterElId && targetDepth === this.lastDragDepth && this.dragPlaceholder?.parentElement === listEl) {
+			return;
+		}
+		this.lastDragAfterElId = afterElId;
+		this.lastDragDepth = targetDepth;
+
+		// Remove old placeholder from other lanes
+		if (this.dragPlaceholder && this.dragPlaceholder.parentElement !== listEl) {
+			this.dragPlaceholder.remove();
+			this.dragPlaceholder = null;
+		}
+
+		// Create placeholder if needed
+		if (!this.dragPlaceholder) {
+			this.dragPlaceholder = listEl.createDiv({ cls: 'kanban-matsuo-drop-placeholder' });
+		}
+
+		// Position
+		if (afterEl) {
+			listEl.insertBefore(this.dragPlaceholder, afterEl);
+		} else {
+			listEl.appendChild(this.dragPlaceholder);
+		}
+
+		// Indent visual + label
 		this.dragPlaceholder.style.setProperty('--card-depth', `${targetDepth}`);
-		if (targetDepth > 0) {
+		if (targetDepth > this.dragOriginDepth) {
 			this.dragPlaceholder.addClass('kanban-matsuo-drop-placeholder-indented');
+			this.dragPlaceholder.setText(t('drag.indent'));
+		} else if (targetDepth < this.dragOriginDepth) {
+			this.dragPlaceholder.removeClass('kanban-matsuo-drop-placeholder-indented');
+			this.dragPlaceholder.setText(t('drag.outdent'));
 		} else {
 			this.dragPlaceholder.removeClass('kanban-matsuo-drop-placeholder-indented');
+			this.dragPlaceholder.setText(t('drag.move-here'));
 		}
-	}
-
-	private getCardAbovePlaceholder(listEl: HTMLElement): HTMLElement | null {
-		let lastCard: HTMLElement | null = null;
-		for (const child of Array.from(listEl.children)) {
-			if (child === this.dragPlaceholder) break;
-			if (child.classList.contains('kanban-matsuo-card')) lastCard = child as HTMLElement;
-		}
-		return lastCard;
 	}
 
 	private getCardDepth(el: HTMLElement): number {
