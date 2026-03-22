@@ -214,6 +214,13 @@ board-uuid: a1b2c3d4-...
 | Gantt bars not showing / ガントバーが表示されない | Add dates to cards using the editor modal or `@{YYYY-MM-DD}` syntax / カードに日付を設定（編集モーダルまたは`@{}`記法） |
 | Drag-and-drop not working on mobile / モバイルでドラッグできない | Use long-press (300ms) to start dragging / 長押し（300ms）でドラッグ開始 |
 
+## Support / サポート
+
+If you find this plugin helpful, consider buying me a coffee!
+このプラグインが役に立ったら、コーヒーをおごってください！
+
+<a href="https://buymeacoffee.com/engineer.matsuo"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=☕&slug=engineer.matsuo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
+
 ## Contributing / 貢献
 
 If you find this plugin helpful:
