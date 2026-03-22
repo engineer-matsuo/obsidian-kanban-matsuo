@@ -83,8 +83,8 @@ export const ja: Record<TranslationKey, string> = {
 	'settings.linked-notes-enabled': 'リンクノートを有効化',
 	'settings.linked-notes-enabled-desc': 'カンバンカードに連動するObsidianノートを作成します。',
 	'settings.linked-note-folder': 'ノートフォルダ',
-	'settings.linked-note-folder-desc': 'リンクノートを保存するVault内のフォルダ。',
-	'settings.linked-note-folder-placeholder': '例: KanbanNotes',
+	'settings.linked-note-folder-desc': 'リンクノートを保存するVault内のフォルダ。サブフォルダは「/」で区切って指定します（例: Notes/Kanban）。',
+	'settings.linked-note-folder-placeholder': '例: KanbanNotes, Notes/Kanban',
 	'settings.linked-note-folder-warning': 'Vault内にフォルダを作成してパスを入力してください。',
 
 	// Commands extra

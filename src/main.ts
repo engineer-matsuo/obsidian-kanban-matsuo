@@ -293,13 +293,19 @@ export default class KanbanPlugin extends Plugin {
 				boardEl.classList.add('kanban-matsuo-uuid-folder');
 			}
 
-			// Decorate UUID folder (only if linked notes is enabled)
+			// Decorate UUID folder and its children (only if linked notes is enabled)
 			if (this.settings.linkedNotesEnabled && this.settings.linkedNoteFolder) {
 				const folderPath = normalizePath(`${this.settings.linkedNoteFolder}/${uuid}`);
 				const folderEl = document.querySelector(`[data-path="${folderPath}"]`) as HTMLElement | null;
 				if (folderEl) {
 					folderEl.style.setProperty('--kanban-uuid-color', color);
 					folderEl.classList.add('kanban-matsuo-uuid-folder');
+				}
+				// Decorate files inside the UUID folder
+				const childEls = document.querySelectorAll(`[data-path^="${folderPath}/"]`) as NodeListOf<HTMLElement>;
+				for (const childEl of childEls) {
+					childEl.style.setProperty('--kanban-uuid-color', color);
+					childEl.classList.add('kanban-matsuo-uuid-folder');
 				}
 			}
 		}

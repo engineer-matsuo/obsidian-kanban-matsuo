@@ -10,6 +10,28 @@ export class KanbanSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
+	/** Update folder validation warning without re-rendering the entire settings pane */
+	private updateFolderWarning(setting: Setting, folderPath: string): void {
+		const existing = setting.controlEl.querySelector('.kanban-matsuo-setting-warning');
+		if (existing) existing.remove();
+
+		let showWarning = false;
+		if (!folderPath) {
+			showWarning = true;
+		} else {
+			const folder = this.app.vault.getAbstractFileByPath(folderPath);
+			if (!(folder instanceof TFolder)) showWarning = true;
+		}
+
+		if (showWarning) {
+			const warningEl = setting.controlEl.createDiv({ cls: 'kanban-matsuo-setting-warning' });
+			warningEl.setText(t('settings.linked-note-folder-warning'));
+			warningEl.style.color = 'var(--text-error)';
+			warningEl.style.fontSize = '0.85em';
+			warningEl.style.marginTop = '4px';
+		}
+	}
+
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
@@ -190,28 +212,13 @@ export class KanbanSettingTab extends PluginSettingTab {
 						.onChange(async (value) => {
 							this.plugin.settings.linkedNoteFolder = value.trim();
 							await this.plugin.saveSettings();
-							this.display();
+							// Update warning inline without re-rendering (avoids losing focus)
+							this.updateFolderWarning(folderSetting, value.trim());
 						})
 				);
 
-			// Validate folder exists
-			const folderPath = this.plugin.settings.linkedNoteFolder;
-			if (!folderPath) {
-				const warningEl = folderSetting.controlEl.createDiv({ cls: 'kanban-matsuo-setting-warning' });
-				warningEl.setText(t('settings.linked-note-folder-warning'));
-				warningEl.style.color = 'var(--text-error)';
-				warningEl.style.fontSize = '0.85em';
-				warningEl.style.marginTop = '4px';
-			} else {
-				const folder = this.app.vault.getAbstractFileByPath(folderPath);
-				if (!(folder instanceof TFolder)) {
-					const warningEl = folderSetting.controlEl.createDiv({ cls: 'kanban-matsuo-setting-warning' });
-					warningEl.setText(t('settings.linked-note-folder-warning'));
-					warningEl.style.color = 'var(--text-error)';
-					warningEl.style.fontSize = '0.85em';
-					warningEl.style.marginTop = '4px';
-				}
-			}
+			// Show initial validation
+			this.updateFolderWarning(folderSetting, this.plugin.settings.linkedNoteFolder);
 		}
 
 		// Input

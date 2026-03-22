@@ -81,8 +81,8 @@ export const en = {
 	'settings.linked-notes-enabled': 'Enable linked notes',
 	'settings.linked-notes-enabled-desc': 'Create Obsidian notes linked to kanban cards.',
 	'settings.linked-note-folder': 'Note folder',
-	'settings.linked-note-folder-desc': 'Vault folder where linked notes will be saved.',
-	'settings.linked-note-folder-placeholder': 'e.g. KanbanNotes',
+	'settings.linked-note-folder-desc': 'Vault folder where linked notes will be saved. Use "/" for subfolders (e.g. Notes/Kanban).',
+	'settings.linked-note-folder-placeholder': 'e.g. KanbanNotes, Notes/Kanban',
 	'settings.linked-note-folder-warning': 'Please create a folder in your vault and enter its path.',
 
 	// Commands extra

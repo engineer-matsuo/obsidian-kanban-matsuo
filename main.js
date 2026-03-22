@@ -398,8 +398,8 @@ var en = {
   "settings.linked-notes-enabled": "Enable linked notes",
   "settings.linked-notes-enabled-desc": "Create Obsidian notes linked to kanban cards.",
   "settings.linked-note-folder": "Note folder",
-  "settings.linked-note-folder-desc": "Vault folder where linked notes will be saved.",
-  "settings.linked-note-folder-placeholder": "e.g. KanbanNotes",
+  "settings.linked-note-folder-desc": 'Vault folder where linked notes will be saved. Use "/" for subfolders (e.g. Notes/Kanban).',
+  "settings.linked-note-folder-placeholder": "e.g. KanbanNotes, Notes/Kanban",
   "settings.linked-note-folder-warning": "Please create a folder in your vault and enter its path.",
   // Commands extra
   "command.add-card": "Add card to lane",
@@ -564,8 +564,8 @@ var ja = {
   "settings.linked-notes-enabled": "\u30EA\u30F3\u30AF\u30CE\u30FC\u30C8\u3092\u6709\u52B9\u5316",
   "settings.linked-notes-enabled-desc": "\u30AB\u30F3\u30D0\u30F3\u30AB\u30FC\u30C9\u306B\u9023\u52D5\u3059\u308BObsidian\u30CE\u30FC\u30C8\u3092\u4F5C\u6210\u3057\u307E\u3059\u3002",
   "settings.linked-note-folder": "\u30CE\u30FC\u30C8\u30D5\u30A9\u30EB\u30C0",
-  "settings.linked-note-folder-desc": "\u30EA\u30F3\u30AF\u30CE\u30FC\u30C8\u3092\u4FDD\u5B58\u3059\u308BVault\u5185\u306E\u30D5\u30A9\u30EB\u30C0\u3002",
-  "settings.linked-note-folder-placeholder": "\u4F8B: KanbanNotes",
+  "settings.linked-note-folder-desc": "\u30EA\u30F3\u30AF\u30CE\u30FC\u30C8\u3092\u4FDD\u5B58\u3059\u308BVault\u5185\u306E\u30D5\u30A9\u30EB\u30C0\u3002\u30B5\u30D6\u30D5\u30A9\u30EB\u30C0\u306F\u300C/\u300D\u3067\u533A\u5207\u3063\u3066\u6307\u5B9A\u3057\u307E\u3059\uFF08\u4F8B: Notes/Kanban\uFF09\u3002",
+  "settings.linked-note-folder-placeholder": "\u4F8B: KanbanNotes, Notes/Kanban",
   "settings.linked-note-folder-warning": "Vault\u5185\u306B\u30D5\u30A9\u30EB\u30C0\u3092\u4F5C\u6210\u3057\u3066\u30D1\u30B9\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
   // Commands extra
   "command.add-card": "\u30EC\u30FC\u30F3\u306B\u30AB\u30FC\u30C9\u3092\u8FFD\u52A0",
@@ -1864,6 +1864,10 @@ var KanbanView = class extends import_obsidian4.ItemView {
     this.lastDragDepth = -1;
     // Gantt auto-scroll timer
     this.ganttAutoScrollTimer = null;
+    // Card drag auto-scroll state
+    this.cardAutoScrollRaf = null;
+    this.cardAutoScrollMouseX = 0;
+    this.cardAutoScrollMouseY = 0;
     this.plugin = plugin;
   }
   getViewType() {
@@ -2342,10 +2346,12 @@ var KanbanView = class extends import_obsidian4.ItemView {
         const ctx = this.getDragContext();
         handleDragOver(e, listEl, lane, ctx);
         this.syncDragContext(ctx);
+        this.startCardAutoScroll(e);
       });
       listEl.addEventListener("drop", (e) => {
         if (!this.draggedItem) return;
         e.preventDefault();
+        this.stopCardAutoScroll();
         const ctx = this.getDragContext();
         handleDrop(lane, listEl, ctx, { lanes: this.board.lanes });
         this.syncDragContext(ctx);
@@ -2405,6 +2411,7 @@ var KanbanView = class extends import_obsidian4.ItemView {
       this.lastDragAfterElId = null;
       this.lastDragDepth = -1;
       this.removePlaceholder();
+      this.stopCardAutoScroll();
     });
     setupTouchDragCard(cardEl, item, lane, this.getDragContext());
     cardEl.addEventListener("keydown", (e) => {
@@ -2888,6 +2895,50 @@ var KanbanView = class extends import_obsidian4.ItemView {
       this.dragPlaceholder = null;
     }
   }
+  /** Auto-scroll the board during card drag (rAF-based, distance-proportional) */
+  startCardAutoScroll(e) {
+    if (e.clientX === 0 && e.clientY === 0) return;
+    this.cardAutoScrollMouseX = e.clientX;
+    this.cardAutoScrollMouseY = e.clientY;
+    if (this.cardAutoScrollRaf !== null) return;
+    const edgeZone = 80;
+    const maxSpeed = 18;
+    const tick = () => {
+      if (!this.boardEl) {
+        this.cardAutoScrollRaf = null;
+        return;
+      }
+      const mx = this.cardAutoScrollMouseX;
+      const my = this.cardAutoScrollMouseY;
+      const boardRect = this.boardEl.getBoundingClientRect();
+      const distTop = my - boardRect.top;
+      const distBottom = boardRect.bottom - my;
+      if (distTop >= 0 && distTop < edgeZone) {
+        const ratio = 1 - distTop / edgeZone;
+        this.boardEl.scrollTop -= maxSpeed * ratio * ratio;
+      } else if (distBottom >= 0 && distBottom < edgeZone) {
+        const ratio = 1 - distBottom / edgeZone;
+        this.boardEl.scrollTop += maxSpeed * ratio * ratio;
+      }
+      const distLeft = mx - boardRect.left;
+      const distRight = boardRect.right - mx;
+      if (distLeft >= 0 && distLeft < edgeZone) {
+        const ratio = 1 - distLeft / edgeZone;
+        this.boardEl.scrollLeft -= maxSpeed * ratio * ratio;
+      } else if (distRight >= 0 && distRight < edgeZone) {
+        const ratio = 1 - distRight / edgeZone;
+        this.boardEl.scrollLeft += maxSpeed * ratio * ratio;
+      }
+      this.cardAutoScrollRaf = requestAnimationFrame(tick);
+    };
+    this.cardAutoScrollRaf = requestAnimationFrame(tick);
+  }
+  stopCardAutoScroll() {
+    if (this.cardAutoScrollRaf !== null) {
+      cancelAnimationFrame(this.cardAutoScrollRaf);
+      this.cardAutoScrollRaf = null;
+    }
+  }
   deleteItem(item, lane) {
     if (removeItemRecursive(lane.items, item)) {
       this.render();
@@ -3069,6 +3120,25 @@ var KanbanSettingTab = class extends import_obsidian5.PluginSettingTab {
     super(app, plugin);
     this.plugin = plugin;
   }
+  /** Update folder validation warning without re-rendering the entire settings pane */
+  updateFolderWarning(setting, folderPath) {
+    const existing = setting.controlEl.querySelector(".kanban-matsuo-setting-warning");
+    if (existing) existing.remove();
+    let showWarning = false;
+    if (!folderPath) {
+      showWarning = true;
+    } else {
+      const folder = this.app.vault.getAbstractFileByPath(folderPath);
+      if (!(folder instanceof import_obsidian5.TFolder)) showWarning = true;
+    }
+    if (showWarning) {
+      const warningEl = setting.controlEl.createDiv({ cls: "kanban-matsuo-setting-warning" });
+      warningEl.setText(t("settings.linked-note-folder-warning"));
+      warningEl.style.color = "var(--text-error)";
+      warningEl.style.fontSize = "0.85em";
+      warningEl.style.marginTop = "4px";
+    }
+  }
   display() {
     const { containerEl } = this;
     containerEl.empty();
@@ -3168,26 +3238,10 @@ var KanbanSettingTab = class extends import_obsidian5.PluginSettingTab {
         (text) => text.setPlaceholder(t("settings.linked-note-folder-placeholder")).setValue(this.plugin.settings.linkedNoteFolder).onChange(async (value) => {
           this.plugin.settings.linkedNoteFolder = value.trim();
           await this.plugin.saveSettings();
-          this.display();
+          this.updateFolderWarning(folderSetting, value.trim());
         })
       );
-      const folderPath = this.plugin.settings.linkedNoteFolder;
-      if (!folderPath) {
-        const warningEl = folderSetting.controlEl.createDiv({ cls: "kanban-matsuo-setting-warning" });
-        warningEl.setText(t("settings.linked-note-folder-warning"));
-        warningEl.style.color = "var(--text-error)";
-        warningEl.style.fontSize = "0.85em";
-        warningEl.style.marginTop = "4px";
-      } else {
-        const folder = this.app.vault.getAbstractFileByPath(folderPath);
-        if (!(folder instanceof import_obsidian5.TFolder)) {
-          const warningEl = folderSetting.controlEl.createDiv({ cls: "kanban-matsuo-setting-warning" });
-          warningEl.setText(t("settings.linked-note-folder-warning"));
-          warningEl.style.color = "var(--text-error)";
-          warningEl.style.fontSize = "0.85em";
-          warningEl.style.marginTop = "4px";
-        }
-      }
+      this.updateFolderWarning(folderSetting, this.plugin.settings.linkedNoteFolder);
     }
     new import_obsidian5.Setting(containerEl).setName(t("settings.input")).setHeading();
     new import_obsidian5.Setting(containerEl).setName(t("settings.newline-key")).setDesc(t("settings.newline-key-desc")).addDropdown(
@@ -3415,6 +3469,11 @@ var KanbanPlugin = class extends import_obsidian6.Plugin {
         if (folderEl) {
           folderEl.style.setProperty("--kanban-uuid-color", color);
           folderEl.classList.add("kanban-matsuo-uuid-folder");
+        }
+        const childEls = document.querySelectorAll(`[data-path^="${folderPath}/"]`);
+        for (const childEl of childEls) {
+          childEl.style.setProperty("--kanban-uuid-color", color);
+          childEl.classList.add("kanban-matsuo-uuid-folder");
         }
       }
     }

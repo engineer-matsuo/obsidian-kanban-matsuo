@@ -84,6 +84,11 @@ export class KanbanView extends ItemView {
 	// Gantt auto-scroll timer
 	private ganttAutoScrollTimer: number | null = null;
 
+	// Card drag auto-scroll state
+	private cardAutoScrollRaf: number | null = null;
+	private cardAutoScrollMouseX = 0;
+	private cardAutoScrollMouseY = 0;
+
 	constructor(leaf: WorkspaceLeaf, plugin: KanbanPlugin) {
 		super(leaf);
 		this.plugin = plugin;
@@ -618,6 +623,9 @@ export class KanbanView extends ItemView {
 				const ctx = this.getDragContext();
 				handleDragOver(e, listEl, lane, ctx);
 				this.syncDragContext(ctx);
+
+				// Auto-scroll the board while dragging
+				this.startCardAutoScroll(e);
 			});
 			// dragleave: do nothing (dragend handles cleanup)
 			// Removing placeholder on dragleave causes flicker because
@@ -626,6 +634,7 @@ export class KanbanView extends ItemView {
 			listEl.addEventListener('drop', (e) => {
 				if (!this.draggedItem) return;
 				e.preventDefault();
+				this.stopCardAutoScroll();
 				const ctx = this.getDragContext();
 				handleDrop(lane, listEl, ctx, { lanes: this.board!.lanes });
 				this.syncDragContext(ctx);
@@ -690,6 +699,7 @@ export class KanbanView extends ItemView {
 			this.draggedItem = null; this.draggedFromLane = null;
 			this.lastDragAfterElId = null; this.lastDragDepth = -1;
 			this.removePlaceholder();
+			this.stopCardAutoScroll();
 		});
 
 		// Touch drag for card
@@ -1218,6 +1228,63 @@ export class KanbanView extends ItemView {
 
 	private removePlaceholder(): void {
 		if (this.dragPlaceholder) { this.dragPlaceholder.remove(); this.dragPlaceholder = null; }
+	}
+
+	/** Auto-scroll the board during card drag (rAF-based, distance-proportional) */
+	private startCardAutoScroll(e: DragEvent): void {
+		// Skip zero coordinates (browser sends 0,0 during some drag phases)
+		if (e.clientX === 0 && e.clientY === 0) return;
+		this.cardAutoScrollMouseX = e.clientX;
+		this.cardAutoScrollMouseY = e.clientY;
+
+		// Only start the rAF loop if not already running
+		if (this.cardAutoScrollRaf !== null) return;
+
+		const edgeZone = 80;
+		const maxSpeed = 18;
+
+		const tick = () => {
+			if (!this.boardEl) { this.cardAutoScrollRaf = null; return; }
+
+			const mx = this.cardAutoScrollMouseX;
+			const my = this.cardAutoScrollMouseY;
+			const boardRect = this.boardEl.getBoundingClientRect();
+
+			// Vertical: scroll board up/down when near top/bottom edge
+			const distTop = my - boardRect.top;
+			const distBottom = boardRect.bottom - my;
+
+			if (distTop >= 0 && distTop < edgeZone) {
+				const ratio = 1 - distTop / edgeZone;
+				this.boardEl.scrollTop -= maxSpeed * ratio * ratio;
+			} else if (distBottom >= 0 && distBottom < edgeZone) {
+				const ratio = 1 - distBottom / edgeZone;
+				this.boardEl.scrollTop += maxSpeed * ratio * ratio;
+			}
+
+			// Horizontal: scroll board left/right when near left/right edge
+			const distLeft = mx - boardRect.left;
+			const distRight = boardRect.right - mx;
+
+			if (distLeft >= 0 && distLeft < edgeZone) {
+				const ratio = 1 - distLeft / edgeZone;
+				this.boardEl.scrollLeft -= maxSpeed * ratio * ratio;
+			} else if (distRight >= 0 && distRight < edgeZone) {
+				const ratio = 1 - distRight / edgeZone;
+				this.boardEl.scrollLeft += maxSpeed * ratio * ratio;
+			}
+
+			this.cardAutoScrollRaf = requestAnimationFrame(tick);
+		};
+
+		this.cardAutoScrollRaf = requestAnimationFrame(tick);
+	}
+
+	private stopCardAutoScroll(): void {
+		if (this.cardAutoScrollRaf !== null) {
+			cancelAnimationFrame(this.cardAutoScrollRaf);
+			this.cardAutoScrollRaf = null;
+		}
 	}
 
 	private deleteItem(item: KanbanItem, lane: KanbanLane): void {
