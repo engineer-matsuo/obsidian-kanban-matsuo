@@ -104,12 +104,12 @@ Obsidian用の高機能カンバンボードプラグインです。
 
 ### Manual Installation / 手動インストール
 
-1. Download the latest release (`main.js`, `manifest.json`, `styles.css`)
-   最新リリースから `main.js`, `manifest.json`, `styles.css` をダウンロード
-2. Create folder: `your-vault/.obsidian/plugins/kanban-matsuo/`
-   Vault内にフォルダを作成: `your-vault/.obsidian/plugins/kanban-matsuo/`
-3. Copy the 3 files into the folder
-   3つのファイルをフォルダにコピー
+1. Go to the [latest release page](https://github.com/engineer-matsuo/obsidian-kanban-matsuo/releases/tag/0.1.0)
+   [リリースページ](https://github.com/engineer-matsuo/obsidian-kanban-matsuo/releases/tag/0.1.0) を開く
+2. Download **Source code (zip)** and extract it
+   **Source code (zip)** をダウンロードして解凍
+3. Copy the extracted folder into your vault's plugins directory: `your-vault/.obsidian/plugins/`
+   解凍したフォルダごとVaultのプラグインディレクトリにコピー: `your-vault/.obsidian/plugins/`
 4. Restart Obsidian → Settings → Community Plugins → Enable "Kanban Board Matsuo"
    Obsidianを再起動 → 設定 → コミュニティプラグイン → 有効化
 
