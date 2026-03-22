@@ -3,7 +3,7 @@
 	"name": "Kanban Board Matsuo",
 	"version": "0.1.0",
 	"minAppVersion": "1.0.0",
-	"description": "Markdown-based kanban board for task and project management.",
+	"description": "Markdown-based kanban board for task and project management with subtasks, Gantt chart, and linked notes.",
 	"author": "matsuo",
 	"isDesktopOnly": false
 }
