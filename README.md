@@ -219,7 +219,7 @@ board-uuid: a1b2c3d4-...
 If you find this plugin helpful, consider buying me a coffee!
 このプラグインが役に立ったら、コーヒーをおごってください！
 
-[![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/engineer.matsuo)
+<a href="https://buymeacoffee.com/engineer.matsuo"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="40"></a>
 
 ## Contributing / 貢献
 
