@@ -1144,6 +1144,10 @@ span.kanban-matsuo-subtask-done {
 	cursor: grabbing;
 }
 
+.kanban-matsuo-gantt-wrapper-panning {
+	cursor: grabbing;
+}
+
 /* Archive button */
 .kanban-matsuo-archive-btn {
 	min-width: 44px;

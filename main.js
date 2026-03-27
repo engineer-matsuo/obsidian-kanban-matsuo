@@ -933,7 +933,7 @@ var CardEditorModal = class extends import_obsidian2.Modal {
     contentEl.empty();
     contentEl.addClass("kanban-matsuo-card-editor");
     contentEl.createEl("h3", { text: t("card-editor.title") });
-    let titleValue = this.item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim();
+    const titleValue = this.item.title.replace(/#[^\s#]+/g, "").replace(/@\{[^}]*\}/g, "").trim();
     const titleSetting = new import_obsidian2.Setting(contentEl).setName(t("card-editor.card-title"));
     const titleInput = titleSetting.controlEl.createEl("textarea", {
       cls: "kanban-matsuo-editor-textarea",
@@ -1154,7 +1154,7 @@ function renderWbs(ctx, container) {
       panStartY = e.clientY;
       panScrollLeft = wrapper.scrollLeft;
       panScrollTop = wrapper.scrollTop;
-      wrapper.style.cursor = "grabbing";
+      wrapper.addClass("kanban-matsuo-gantt-wrapper-panning");
       e.preventDefault();
     }
   });
@@ -1166,13 +1166,13 @@ function renderWbs(ctx, container) {
   wrapper.addEventListener("mouseup", () => {
     if (isPanning) {
       isPanning = false;
-      wrapper.style.cursor = "";
+      wrapper.removeClass("kanban-matsuo-gantt-wrapper-panning");
     }
   });
   wrapper.addEventListener("mouseleave", () => {
     if (isPanning) {
       isPanning = false;
-      wrapper.style.cursor = "";
+      wrapper.removeClass("kanban-matsuo-gantt-wrapper-panning");
     }
   });
   const hdr1 = wrapper.createDiv({ cls: "kanban-matsuo-gantt-row kanban-matsuo-gantt-hdr" });
@@ -1946,7 +1946,7 @@ var KanbanView = class extends import_obsidian4.ItemView {
     if (!this.file) return;
     this.ignoreModifyCount++;
     await this.app.vault.process(this.file, () => boardToMarkdown(board));
-    this.plugin.refreshUuidFolderColors();
+    void this.plugin.refreshUuidFolderColors();
   }
   /** Re-render the view (for use by commands in main.ts) */
   refresh() {
@@ -1957,7 +1957,7 @@ var KanbanView = class extends import_obsidian4.ItemView {
       window.clearTimeout(this.saveTimeout);
     }
     this.saveTimeout = window.setTimeout(() => {
-      this.save();
+      void this.save();
     }, this.plugin.settings.autoSaveDelay);
   }
   async save() {
@@ -2124,9 +2124,9 @@ var KanbanView = class extends import_obsidian4.ItemView {
           "data-tooltip-position": "top"
         }
       });
-      uuidLabel.style.setProperty("--kanban-uuid-color", colorForUuid(uuid));
-      uuidLabel.addEventListener("click", async () => {
-        await navigator.clipboard.writeText(uuid);
+      uuidLabel.setAttribute("style", `--kanban-uuid-color: ${colorForUuid(uuid)}`);
+      uuidLabel.addEventListener("click", () => {
+        void navigator.clipboard.writeText(uuid);
         uuidLabel.setText(`ID: ${uuid} \u2713`);
         window.setTimeout(() => uuidLabel.setText(`ID: ${uuid}`), 1500);
       });
@@ -2686,19 +2686,19 @@ var KanbanView = class extends import_obsidian4.ItemView {
         }
       });
       (0, import_obsidian4.setIcon)(linkBtn, isLinked ? "file-text" : "file-plus");
-      linkBtn.addEventListener("click", async (e) => {
+      linkBtn.addEventListener("click", (e) => {
         var _a;
         e.stopPropagation();
         if (isLinked && item.linkedNotePath) {
           const file = this.app.vault.getAbstractFileByPath(item.linkedNotePath);
           if (file instanceof import_obsidian4.TFile) {
-            await this.app.workspace.openLinkText(item.linkedNotePath, ((_a = this.file) == null ? void 0 : _a.path) || "");
+            void this.app.workspace.openLinkText(item.linkedNotePath, ((_a = this.file) == null ? void 0 : _a.path) || "");
           } else {
             item.linkedNotePath = null;
-            await this.createLinkedNoteForCard(item, lane);
+            void this.createLinkedNoteForCard(item, lane);
           }
         } else {
-          await this.createLinkedNoteForCard(item, lane);
+          void this.createLinkedNoteForCard(item, lane);
         }
       });
     }
@@ -2826,7 +2826,7 @@ var KanbanView = class extends import_obsidian4.ItemView {
         const { done, total } = this.countChildren(item.children);
         progressText.setText(t("subtask.progress", { done, total }));
         const pct = total > 0 ? done / total * 100 : 0;
-        progressFill.style.setProperty("--progress-pct", `${pct}%`);
+        progressFill.setCssStyles({ "--progress-pct": `${pct}%` });
       }
     }
   }
@@ -2931,9 +2931,9 @@ var KanbanView = class extends import_obsidian4.ItemView {
       attr: { placeholder: t("card.add"), "aria-label": t("card.add-to", { lane: lane.title }), rows: "1" }
     });
     textarea.addEventListener("input", () => {
-      textarea.style.setProperty("--textarea-rows", "1");
+      textarea.setCssStyles({ "--textarea-rows": "1" });
       const scrollH = textarea.scrollHeight;
-      textarea.style.setProperty("--textarea-height", `${scrollH}px`);
+      textarea.setCssStyles({ "--textarea-height": `${scrollH}px` });
     });
     textarea.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.isComposing) {
@@ -3258,9 +3258,7 @@ var KanbanSettingTab = class extends import_obsidian5.PluginSettingTab {
     if (showWarning) {
       const warningEl = setting.controlEl.createDiv({ cls: "kanban-matsuo-setting-warning" });
       warningEl.setText(t("settings.linked-note-folder-warning"));
-      warningEl.style.color = "var(--text-error)";
-      warningEl.style.fontSize = "0.85em";
-      warningEl.style.marginTop = "4px";
+      warningEl.setCssStyles({ color: "var(--text-error)", fontSize: "0.85em", marginTop: "4px" });
     }
   }
   display() {
@@ -3275,7 +3273,7 @@ var KanbanSettingTab = class extends import_obsidian5.PluginSettingTab {
     );
     new import_obsidian5.Setting(containerEl).setName(t("settings.board-defaults")).setHeading();
     new import_obsidian5.Setting(containerEl).setName(t("settings.default-lanes")).setDesc(t("settings.default-lanes-desc")).addText(
-      (text) => text.setPlaceholder("To Do, In Progress, Done").setValue(this.plugin.settings.defaultLanes.join(", ")).onChange(async (value) => {
+      (text) => text.setPlaceholder("To do, In progress, Done").setValue(this.plugin.settings.defaultLanes.join(", ")).onChange(async (value) => {
         this.plugin.settings.defaultLanes = value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
         await this.plugin.saveSettings();
       })
@@ -3469,7 +3467,7 @@ var KanbanPlugin = class extends import_obsidian6.Plugin {
         const file = this.app.workspace.getActiveFile();
         if (file instanceof import_obsidian6.TFile && file.extension === "md") {
           if (!checking) {
-            this.toggleKanbanView(file);
+            void this.toggleKanbanView(file);
           }
           return true;
         }
@@ -3539,7 +3537,7 @@ var KanbanPlugin = class extends import_obsidian6.Plugin {
     const debouncedDecorate = () => {
       if (decorateTimer !== null) window.clearTimeout(decorateTimer);
       decorateTimer = window.setTimeout(() => {
-        this.buildUuidColorMap().then(() => this.decorateUuidFolders());
+        void this.buildUuidColorMap().then(() => this.decorateUuidFolders());
       }, 200);
     };
     this.registerEvent(
@@ -3558,7 +3556,7 @@ var KanbanPlugin = class extends import_obsidian6.Plugin {
       this.app.vault.on("rename", debouncedDecorate)
     );
     this.app.workspace.onLayoutReady(() => {
-      this.buildUuidColorMap().then(() => this.decorateUuidFolders());
+      void this.buildUuidColorMap().then(() => this.decorateUuidFolders());
     });
   }
   /**
@@ -3596,8 +3594,9 @@ var KanbanPlugin = class extends import_obsidian6.Plugin {
         }
         const childEls = document.querySelectorAll(`[data-path^="${folderPath}/"]`);
         for (const childEl of childEls) {
-          childEl.style.setProperty("--kanban-uuid-color", color);
-          childEl.classList.add("kanban-matsuo-uuid-folder");
+          const el = childEl;
+          el.style.setProperty("--kanban-uuid-color", color);
+          el.classList.add("kanban-matsuo-uuid-folder");
         }
       }
     }
@@ -3610,7 +3609,7 @@ var KanbanPlugin = class extends import_obsidian6.Plugin {
     await this.buildUuidColorMap();
     this.decorateUuidFolders();
   }
-  async onunload() {
+  onunload() {
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_PLUGIN_SETTINGS, await this.loadData());
@@ -3654,7 +3653,7 @@ var KanbanPlugin = class extends import_obsidian6.Plugin {
       const view2 = leaf2.view;
       if (view2 instanceof KanbanView) {
         await view2.loadFile(file);
-        this.app.workspace.revealLeaf(leaf2);
+        void this.app.workspace.revealLeaf(leaf2);
         return;
       }
     }
@@ -3725,14 +3724,13 @@ var KanbanPlugin = class extends import_obsidian6.Plugin {
     const laneNames = board.lanes.map((l) => l.title);
     if (laneNames.length === 0) return;
     new LaneSuggestModal(this.app, laneNames, (selectedLane) => {
-      const cardModal = new CardTitleModal(this.app, async (cardTitle) => {
+      const cardModal = new CardTitleModal(this.app, (cardTitle) => {
         if (!cardTitle) return;
         const lane = board.lanes.find((l) => l.title === selectedLane);
         if (!lane) return;
         const item = createItem(cardTitle);
         lane.items.push(item);
-        await view.saveBoard(board);
-        view.refresh();
+        void view.saveBoard(board).then(() => view.refresh());
       });
       cardModal.open();
     }).open();
@@ -3755,7 +3753,7 @@ var KanbanPlugin = class extends import_obsidian6.Plugin {
     if (cardItems.length === 0) return;
     new CardSuggestModal(this.app, cardItems, (sourceLaneName, cardTitle) => {
       const laneNames = board.lanes.map((l) => l.title);
-      new LaneSuggestModal(this.app, laneNames, async (targetLaneName) => {
+      new LaneSuggestModal(this.app, laneNames, (targetLaneName) => {
         if (sourceLaneName === targetLaneName) return;
         const sourceLane = board.lanes.find((l) => l.title === sourceLaneName);
         const targetLane = board.lanes.find((l) => l.title === targetLaneName);
@@ -3764,8 +3762,7 @@ var KanbanPlugin = class extends import_obsidian6.Plugin {
         if (cardIndex === -1) return;
         const [movedCard] = sourceLane.items.splice(cardIndex, 1);
         targetLane.items.push(movedCard);
-        await view.saveBoard(board);
-        view.refresh();
+        void view.saveBoard(board).then(() => view.refresh());
       }).open();
     }).open();
   }

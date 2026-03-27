@@ -26,9 +26,7 @@ export class KanbanSettingTab extends PluginSettingTab {
 		if (showWarning) {
 			const warningEl = setting.controlEl.createDiv({ cls: 'kanban-matsuo-setting-warning' });
 			warningEl.setText(t('settings.linked-note-folder-warning'));
-			warningEl.style.color = 'var(--text-error)';
-			warningEl.style.fontSize = '0.85em';
-			warningEl.style.marginTop = '4px';
+			warningEl.setCssStyles({ color: 'var(--text-error)', fontSize: '0.85em', marginTop: '4px' });
 		}
 	}
 
@@ -62,7 +60,8 @@ export class KanbanSettingTab extends PluginSettingTab {
 			.setDesc(t('settings.default-lanes-desc'))
 			.addText((text) =>
 				text
-					.setPlaceholder('To Do, In Progress, Done')
+					// eslint-disable-next-line obsidianmd/ui/sentence-case
+					.setPlaceholder('To do, In progress, Done')
 					.setValue(this.plugin.settings.defaultLanes.join(', '))
 					.onChange(async (value) => {
 						this.plugin.settings.defaultLanes = value

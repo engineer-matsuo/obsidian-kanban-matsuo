@@ -20,10 +20,10 @@ export interface GanttContext {
  * Update a single gantt bar's done state in the DOM.
  */
 export function updateGanttBarStatesInDom(ctx: GanttContext, item: KanbanItem): void {
-	const row = ctx.contentEl.querySelector(`.kanban-matsuo-gantt-row[data-gantt-id="${item.id}"]`) as HTMLElement | null;
+	const row = ctx.contentEl.querySelector(`.kanban-matsuo-gantt-row[data-gantt-id="${item.id}"]`);
 	if (!row) return;
 	row.toggleClass('kanban-matsuo-wbs-done', item.checked);
-	const bar = row.querySelector('.kanban-matsuo-gantt-bar-continuous') as HTMLElement | null;
+	const bar = row.querySelector('.kanban-matsuo-gantt-bar-continuous');
 	if (bar) bar.toggleClass('kanban-matsuo-gantt-bar-done', item.checked);
 }
 
@@ -117,7 +117,7 @@ export function renderWbs(ctx: GanttContext, container: HTMLElement): void {
 			panStartY = e.clientY;
 			panScrollLeft = wrapper.scrollLeft;
 			panScrollTop = wrapper.scrollTop;
-			wrapper.style.cursor = 'grabbing';
+			wrapper.addClass('kanban-matsuo-gantt-wrapper-panning');
 			e.preventDefault();
 		}
 	});
@@ -131,14 +131,14 @@ export function renderWbs(ctx: GanttContext, container: HTMLElement): void {
 	wrapper.addEventListener('mouseup', () => {
 		if (isPanning) {
 			isPanning = false;
-			wrapper.style.cursor = '';
+			wrapper.removeClass('kanban-matsuo-gantt-wrapper-panning');
 		}
 	});
 
 	wrapper.addEventListener('mouseleave', () => {
 		if (isPanning) {
 			isPanning = false;
-			wrapper.style.cursor = '';
+			wrapper.removeClass('kanban-matsuo-gantt-wrapper-panning');
 		}
 	});
 
@@ -362,14 +362,14 @@ export function computeParentDates(item: KanbanItem): void {
 export function updateGanttRowInPlace(ctx: GanttContext, item: KanbanItem, dates: string[]): void {
 	const row = ctx.contentEl.querySelector(
 		`.kanban-matsuo-gantt-row[data-gantt-id="${item.id}"]`
-	) as HTMLElement | null;
+	);
 	if (!row) return;
 
-	const rightCells = row.querySelector('.kanban-matsuo-gantt-right-cells') as HTMLElement | null;
+	const rightCells = row.querySelector('.kanban-matsuo-gantt-right-cells');
 	if (!rightCells) return;
 
 	// Update continuous bar position/width
-	let bar = rightCells.querySelector('.kanban-matsuo-gantt-bar-continuous') as HTMLElement | null;
+	let bar = rightCells.querySelector('.kanban-matsuo-gantt-bar-continuous');
 	const start = item.startDate || item.endDate;
 	const end = item.endDate || item.startDate;
 	const cellWidth = 28;
@@ -381,8 +381,8 @@ export function updateGanttRowInPlace(ctx: GanttContext, item: KanbanItem, dates
 			if (!bar) {
 				bar = rightCells.createDiv({ cls: 'kanban-matsuo-gantt-bar-continuous' });
 			}
-			bar.style.setProperty('left', `${startIdx * cellWidth}px`);
-			bar.style.setProperty('width', `${(endIdx - startIdx + 1) * cellWidth}px`);
+			(bar as HTMLElement).style.setProperty('left', `${startIdx * cellWidth}px`);
+			(bar as HTMLElement).style.setProperty('width', `${(endIdx - startIdx + 1) * cellWidth}px`);
 		} else if (bar) {
 			bar.remove();
 		}
@@ -432,7 +432,7 @@ export function showGanttLaneFilterMenu(ctx: GanttContext, e: MouseEvent | Event
  * Start auto-scrolling the gantt wrapper when mouse is near edges during drag.
  */
 export function startGanttAutoScroll(ctx: GanttContext, ev: MouseEvent): void {
-	const wrapper = ctx.contentEl.querySelector('.kanban-matsuo-gantt-wrapper') as HTMLElement | null;
+	const wrapper = ctx.contentEl.querySelector('.kanban-matsuo-gantt-wrapper');
 	if (!wrapper) return;
 
 	const rect = wrapper.getBoundingClientRect();
@@ -471,10 +471,10 @@ export function stopGanttAutoScroll(ctx: GanttContext): void {
 export function highlightWbsRow(ctx: GanttContext, itemId: string): void {
 	const row = ctx.contentEl.querySelector(
 		`.kanban-matsuo-gantt-row[data-gantt-id="${itemId}"]`
-	) as HTMLElement | null;
+	);
 	if (!row) return;
 
-	const wrapper = ctx.contentEl.querySelector('.kanban-matsuo-gantt-wrapper') as HTMLElement | null;
+	const wrapper = ctx.contentEl.querySelector('.kanban-matsuo-gantt-wrapper');
 	if (!wrapper) return;
 
 	// Calculate target scroll position (both axes at once)
@@ -486,9 +486,9 @@ export function highlightWbsRow(ctx: GanttContext, itemId: string): void {
 
 	// Horizontal: scroll to bar start
 	let targetLeft = wrapper.scrollLeft;
-	const bar = row.querySelector('.kanban-matsuo-gantt-bar-continuous') as HTMLElement | null;
+	const bar = row.querySelector('.kanban-matsuo-gantt-bar-continuous');
 	if (bar) {
-		const barLeft = parseInt(bar.style.getPropertyValue('left') || '0', 10);
+		const barLeft = parseInt((bar as HTMLElement).style.getPropertyValue('left') || '0', 10);
 		const leftColWidth = 540;
 		targetLeft = Math.max(0, barLeft - leftColWidth - 50);
 	}

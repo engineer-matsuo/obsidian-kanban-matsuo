@@ -185,7 +185,7 @@ export class KanbanView extends ItemView {
 		this.ignoreModifyCount++;
 		await this.app.vault.process(this.file, () => boardToMarkdown(board));
 		// Refresh file explorer UUID folder colors
-		this.plugin.refreshUuidFolderColors();
+		void this.plugin.refreshUuidFolderColors();
 	}
 
 	/** Re-render the view (for use by commands in main.ts) */
@@ -198,7 +198,7 @@ export class KanbanView extends ItemView {
 			window.clearTimeout(this.saveTimeout);
 		}
 		this.saveTimeout = window.setTimeout(() => {
-			this.save();
+			void this.save();
 		}, this.plugin.settings.autoSaveDelay);
 	}
 
@@ -235,11 +235,11 @@ export class KanbanView extends ItemView {
 		}
 
 		// Save scroll positions before re-render
-		const ganttWrap = this.contentEl.querySelector('.kanban-matsuo-gantt-wrapper') as HTMLElement | null;
+		const ganttWrap = this.contentEl.querySelector('.kanban-matsuo-gantt-wrapper');
 		const savedGanttScrollLeft = ganttWrap?.scrollLeft ?? 0;
 		const savedGanttScrollTop = ganttWrap?.scrollTop ?? 0;
 
-		const boardEl = this.contentEl.querySelector('.kanban-matsuo-board') as HTMLElement | null;
+		const boardEl = this.contentEl.querySelector('.kanban-matsuo-board');
 		const savedBoardScrollLeft = boardEl?.scrollLeft ?? 0;
 		const savedBoardScrollTop = boardEl?.scrollTop ?? 0;
 
@@ -273,7 +273,7 @@ export class KanbanView extends ItemView {
 			board.scrollLeft = savedBoardScrollLeft;
 			board.scrollTop = savedBoardScrollTop;
 			if (this.showWbs) {
-				const newWrap = this.contentEl.querySelector('.kanban-matsuo-gantt-wrapper') as HTMLElement | null;
+				const newWrap = this.contentEl.querySelector('.kanban-matsuo-gantt-wrapper');
 				if (newWrap) { newWrap.scrollLeft = savedGanttScrollLeft; newWrap.scrollTop = savedGanttScrollTop; }
 			}
 		});
@@ -397,9 +397,9 @@ export class KanbanView extends ItemView {
 					'data-tooltip-position': 'top',
 				},
 			});
-			uuidLabel.style.setProperty('--kanban-uuid-color', colorForUuid(uuid));
-			uuidLabel.addEventListener('click', async () => {
-				await navigator.clipboard.writeText(uuid);
+			uuidLabel.setAttribute('style', `--kanban-uuid-color: ${colorForUuid(uuid)}`);
+			uuidLabel.addEventListener('click', () => {
+				void navigator.clipboard.writeText(uuid);
 				uuidLabel.setText(`ID: ${uuid} ✓`);
 				window.setTimeout(() => uuidLabel.setText(`ID: ${uuid}`), 1500);
 			});
@@ -700,17 +700,17 @@ export class KanbanView extends ItemView {
 			if (this.draggedItem) return;
 			if (this.activeInsertZone?.hasClass('kanban-matsuo-insert-zone-editing')) return;
 
-			const zones = listEl.querySelectorAll(':scope > .kanban-matsuo-insert-zone') as NodeListOf<HTMLElement>;
+			const zones = listEl.querySelectorAll(':scope > .kanban-matsuo-insert-zone');
 			const mouseY = e.clientY;
 			let nearest: HTMLElement | null = null;
 			let nearestDist = 30; // px threshold
 
 			for (const z of zones) {
-				const rect = z.getBoundingClientRect();
+				const rect = (z as HTMLElement).getBoundingClientRect();
 				const dist = Math.abs(mouseY - rect.top);
 				if (dist < nearestDist) {
 					nearestDist = dist;
-					nearest = z;
+					nearest = z as HTMLElement;
 				}
 			}
 
@@ -880,9 +880,9 @@ export class KanbanView extends ItemView {
 				cls: 'kanban-matsuo-card-checkbox task-list-item-checkbox',
 				attr: { type: 'checkbox', 'aria-label': item.checked ? t('card.mark-as-incomplete', { title: item.title }) : t('card.mark-as-complete', { title: item.title }) },
 			});
-			(checkboxEl as HTMLInputElement).checked = item.checked;
+			(checkboxEl).checked = item.checked;
 			checkboxEl.addEventListener('change', () => {
-				item.checked = (checkboxEl as HTMLInputElement).checked;
+				item.checked = (checkboxEl).checked;
 				cardEl.toggleClass('kanban-matsuo-card-checked', item.checked);
 
 				// If parent checked, check all children recursively
@@ -1035,20 +1035,20 @@ export class KanbanView extends ItemView {
 				},
 			});
 			setIcon(linkBtn, isLinked ? 'file-text' : 'file-plus');
-			linkBtn.addEventListener('click', async (e) => {
+			linkBtn.addEventListener('click', (e) => {
 				e.stopPropagation();
 				if (isLinked && item.linkedNotePath) {
 					// Check file still exists before opening
 					const file = this.app.vault.getAbstractFileByPath(item.linkedNotePath);
 					if (file instanceof TFile) {
-						await this.app.workspace.openLinkText(item.linkedNotePath, this.file?.path || '');
+						void this.app.workspace.openLinkText(item.linkedNotePath, this.file?.path || '');
 					} else {
 						// File was deleted externally — clear and recreate
 						item.linkedNotePath = null;
-						await this.createLinkedNoteForCard(item, lane);
+						void this.createLinkedNoteForCard(item, lane);
 					}
 				} else {
-					await this.createLinkedNoteForCard(item, lane);
+					void this.createLinkedNoteForCard(item, lane);
 				}
 			});
 		}
@@ -1181,8 +1181,8 @@ export class KanbanView extends ItemView {
 		for (const child of children) {
 			const cardEl = this.boardEl?.querySelector(`[data-item-id="${child.id}"]`) as HTMLElement | null;
 			if (cardEl) {
-				const cb = cardEl.querySelector('.kanban-matsuo-card-checkbox') as HTMLInputElement | null;
-				if (cb) cb.checked = child.checked;
+				const cb = cardEl.querySelector('.kanban-matsuo-card-checkbox');
+				if (cb) (cb as HTMLInputElement).checked = child.checked;
 				cardEl.toggleClass('kanban-matsuo-card-checked', child.checked);
 			}
 			if (child.children.length > 0) this.updateChildCheckboxesInDom(child.children);
@@ -1199,13 +1199,13 @@ export class KanbanView extends ItemView {
 			if (item.children.length === 0) continue;
 			const cardEl = this.boardEl?.querySelector(`[data-item-id="${item.id}"]`) as HTMLElement | null;
 			if (!cardEl) continue;
-			const progressText = cardEl.querySelector('.kanban-matsuo-progress-text') as HTMLElement | null;
-			const progressFill = cardEl.querySelector('.kanban-matsuo-progress-fill') as HTMLElement | null;
+			const progressText = cardEl.querySelector('.kanban-matsuo-progress-text');
+			const progressFill = cardEl.querySelector('.kanban-matsuo-progress-fill');
 			if (progressText && progressFill) {
 				const { done, total } = this.countChildren(item.children);
 				progressText.setText(t('subtask.progress', { done, total }));
 				const pct = total > 0 ? (done / total) * 100 : 0;
-				progressFill.style.setProperty('--progress-pct', `${pct}%`);
+				(progressFill as HTMLElement).setCssStyles({ '--progress-pct': `${pct}%` } as unknown as Partial<CSSStyleDeclaration>);
 			}
 		}
 	}
@@ -1321,9 +1321,9 @@ export class KanbanView extends ItemView {
 		});
 		// Auto-resize
 		textarea.addEventListener('input', () => {
-			textarea.style.setProperty('--textarea-rows', '1');
+			textarea.setCssStyles({ '--textarea-rows': '1' } as unknown as Partial<CSSStyleDeclaration>);
 			const scrollH = textarea.scrollHeight;
-			textarea.style.setProperty('--textarea-height', `${scrollH}px`);
+			textarea.setCssStyles({ '--textarea-height': `${scrollH}px` } as unknown as Partial<CSSStyleDeclaration>);
 		});
 		textarea.addEventListener('keydown', (e: KeyboardEvent) => {
 			if (e.key === 'Enter' && !e.isComposing) {

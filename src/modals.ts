@@ -68,7 +68,7 @@ export class CardEditorModal extends Modal {
 		contentEl.createEl('h3', { text: t('card-editor.title') });
 
 		// Title
-		let titleValue = this.item.title
+		const titleValue = this.item.title
 			.replace(/#[^\s#]+/g, '')
 			.replace(/@\{[^}]*\}/g, '')
 			.trim();
@@ -96,7 +96,7 @@ export class CardEditorModal extends Modal {
 				'aria-label': t('card-editor.tags'),
 			},
 		});
-		(tagsInput as HTMLInputElement).value = this.item.tags.join(', ');
+		(tagsInput).value = this.item.tags.join(', ');
 
 		// Start date
 		const startSetting = new Setting(contentEl)
@@ -105,7 +105,7 @@ export class CardEditorModal extends Modal {
 			cls: 'kanban-matsuo-editor-input',
 			attr: { type: 'date', 'aria-label': t('card-editor.start-date') },
 		});
-		(startInput as HTMLInputElement).value = this.item.startDate || '';
+		(startInput).value = this.item.startDate || '';
 
 		// End date
 		const endSetting = new Setting(contentEl)
@@ -114,7 +114,7 @@ export class CardEditorModal extends Modal {
 			cls: 'kanban-matsuo-editor-input',
 			attr: { type: 'date', 'aria-label': t('card-editor.end-date') },
 		});
-		(endInput as HTMLInputElement).value = this.item.endDate || '';
+		(endInput).value = this.item.endDate || '';
 
 		// Body / description
 		const bodySetting = new Setting(contentEl)
@@ -134,7 +134,7 @@ export class CardEditorModal extends Modal {
 		new Setting(contentEl)
 			.addButton((btn) => {
 				btn.setButtonText(t('modal.save')).setCta().onClick(() => {
-					this.saveAndClose(titleInput, tagsInput as HTMLInputElement, startInput as HTMLInputElement, endInput as HTMLInputElement, bodyInput);
+					this.saveAndClose(titleInput, tagsInput, startInput, endInput, bodyInput);
 				});
 			})
 			.addButton((btn) => {

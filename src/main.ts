@@ -151,7 +151,7 @@ export default class KanbanPlugin extends Plugin {
 				const file = this.app.workspace.getActiveFile();
 				if (file instanceof TFile && file.extension === 'md') {
 					if (!checking) {
-						this.toggleKanbanView(file);
+						void this.toggleKanbanView(file);
 					}
 					return true;
 				}
@@ -169,7 +169,7 @@ export default class KanbanPlugin extends Plugin {
 
 				const leaves = this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE);
 				const activeView = leaves.find(
-					(l) => l.view instanceof KanbanView && (l.view as KanbanView).file?.path === file.path,
+					(l) => l.view instanceof KanbanView && (l.view).file?.path === file.path,
 				)?.view as KanbanView | undefined;
 
 				if (!activeView) return false;
@@ -191,7 +191,7 @@ export default class KanbanPlugin extends Plugin {
 
 				const leaves = this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE);
 				const activeView = leaves.find(
-					(l) => l.view instanceof KanbanView && (l.view as KanbanView).file?.path === file.path,
+					(l) => l.view instanceof KanbanView && (l.view).file?.path === file.path,
 				)?.view as KanbanView | undefined;
 
 				if (!activeView) return false;
@@ -236,7 +236,7 @@ export default class KanbanPlugin extends Plugin {
 		const debouncedDecorate = () => {
 			if (decorateTimer !== null) window.clearTimeout(decorateTimer);
 			decorateTimer = window.setTimeout(() => {
-				this.buildUuidColorMap().then(() => this.decorateUuidFolders());
+				void this.buildUuidColorMap().then(() => this.decorateUuidFolders());
 			}, 200);
 		};
 		this.registerEvent(
@@ -257,7 +257,7 @@ export default class KanbanPlugin extends Plugin {
 		);
 		// Initial decoration after layout is ready
 		this.app.workspace.onLayoutReady(() => {
-			this.buildUuidColorMap().then(() => this.decorateUuidFolders());
+			void this.buildUuidColorMap().then(() => this.decorateUuidFolders());
 		});
 	}
 
@@ -287,7 +287,7 @@ export default class KanbanPlugin extends Plugin {
 	private decorateUuidFolders(): void {
 		for (const [uuid, { color, boardPath }] of this.uuidColorMap) {
 			// Decorate board file itself
-			const boardEl = document.querySelector(`[data-path="${boardPath}"]`) as HTMLElement | null;
+			const boardEl = document.querySelector<HTMLElement>(`[data-path="${boardPath}"]`);
 			if (boardEl) {
 				boardEl.style.setProperty('--kanban-uuid-color', color);
 				boardEl.classList.add('kanban-matsuo-uuid-folder');
@@ -296,16 +296,17 @@ export default class KanbanPlugin extends Plugin {
 			// Decorate UUID folder and its children (only if linked notes is enabled)
 			if (this.settings.linkedNotesEnabled && this.settings.linkedNoteFolder) {
 				const folderPath = normalizePath(`${this.settings.linkedNoteFolder}/${uuid}`);
-				const folderEl = document.querySelector(`[data-path="${folderPath}"]`) as HTMLElement | null;
+				const folderEl = document.querySelector<HTMLElement>(`[data-path="${folderPath}"]`);
 				if (folderEl) {
 					folderEl.style.setProperty('--kanban-uuid-color', color);
 					folderEl.classList.add('kanban-matsuo-uuid-folder');
 				}
 				// Decorate files inside the UUID folder
-				const childEls = document.querySelectorAll(`[data-path^="${folderPath}/"]`) as NodeListOf<HTMLElement>;
+				const childEls = document.querySelectorAll<HTMLElement>(`[data-path^="${folderPath}/"]`);
 				for (const childEl of childEls) {
-					childEl.style.setProperty('--kanban-uuid-color', color);
-					childEl.classList.add('kanban-matsuo-uuid-folder');
+					const el = childEl as HTMLElement;
+					el.style.setProperty('--kanban-uuid-color', color);
+					el.classList.add('kanban-matsuo-uuid-folder');
 				}
 			}
 		}
@@ -320,12 +321,12 @@ export default class KanbanPlugin extends Plugin {
 		this.decorateUuidFolders();
 	}
 
-	async onunload(): Promise<void> {
+	onunload(): void {
 		// Views are automatically cleaned up by Obsidian
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_PLUGIN_SETTINGS, await this.loadData());
+		this.settings = Object.assign({}, DEFAULT_PLUGIN_SETTINGS, await this.loadData() as Partial<KanbanPluginSettings>);
 	}
 
 	async saveSettings(): Promise<void> {
@@ -373,7 +374,7 @@ export default class KanbanPlugin extends Plugin {
 			const view = leaf.view;
 			if (view instanceof KanbanView) {
 				await view.loadFile(file);
-				this.app.workspace.revealLeaf(leaf);
+				void this.app.workspace.revealLeaf(leaf);
 				return;
 			}
 		}
@@ -460,15 +461,14 @@ export default class KanbanPlugin extends Plugin {
 
 		new LaneSuggestModal(this.app, laneNames, (selectedLane) => {
 			// After the lane is chosen, ask for the card title
-			const cardModal = new CardTitleModal(this.app, async (cardTitle) => {
+			const cardModal = new CardTitleModal(this.app, (cardTitle) => {
 				if (!cardTitle) return;
 				const lane = board.lanes.find((l) => l.title === selectedLane);
 				if (!lane) return;
 
 				const item = createItem(cardTitle);
 				lane.items.push(item);
-				await view.saveBoard(board);
-				view.refresh();
+				void view.saveBoard(board).then(() => view.refresh());
 			});
 			cardModal.open();
 		}).open();
@@ -495,7 +495,7 @@ export default class KanbanPlugin extends Plugin {
 
 		new CardSuggestModal(this.app, cardItems, (sourceLaneName, cardTitle) => {
 			const laneNames = board.lanes.map((l) => l.title);
-			new LaneSuggestModal(this.app, laneNames, async (targetLaneName) => {
+			new LaneSuggestModal(this.app, laneNames, (targetLaneName) => {
 				if (sourceLaneName === targetLaneName) return;
 
 				const sourceLane = board.lanes.find((l) => l.title === sourceLaneName);
@@ -508,8 +508,7 @@ export default class KanbanPlugin extends Plugin {
 				const [movedCard] = sourceLane.items.splice(cardIndex, 1);
 				targetLane.items.push(movedCard);
 
-				await view.saveBoard(board);
-				view.refresh();
+				void view.saveBoard(board).then(() => view.refresh());
 			}).open();
 		}).open();
 	}

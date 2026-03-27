@@ -19,7 +19,7 @@ export function getCardDepth(el: HTMLElement): number {
 }
 
 export function getDragAfterElement(container: HTMLElement, y: number, dragPlaceholder: HTMLElement | null): HTMLElement | null {
-	const cards = Array.from(container.querySelectorAll('.kanban-matsuo-card:not(.kanban-matsuo-card-dragging)')) as HTMLElement[];
+	const cards = Array.from(container.querySelectorAll('.kanban-matsuo-card:not(.kanban-matsuo-card-dragging)'));
 
 	// If placeholder already exists, check if cursor is still within it
 	// If so, return current position (no change) to prevent oscillation
@@ -36,7 +36,7 @@ export function getDragAfterElement(container: HTMLElement, y: number, dragPlace
 		(acc, card) => {
 			const box = card.getBoundingClientRect();
 			const offset = y - box.top - box.height / 2;
-			if (offset < 0 && offset > acc.offset) return { offset, el: card };
+			if (offset < 0 && offset > acc.offset) return { offset, el: card as HTMLElement };
 			return acc;
 		},
 		{ offset: Number.NEGATIVE_INFINITY, el: null },
