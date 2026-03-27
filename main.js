@@ -1868,6 +1868,9 @@ var KanbanView = class extends import_obsidian4.ItemView {
     this.cardAutoScrollRaf = null;
     this.cardAutoScrollMouseX = 0;
     this.cardAutoScrollMouseY = 0;
+    // Insert zone state
+    this.activeInsertZone = null;
+    this.insertZoneData = /* @__PURE__ */ new WeakMap();
     this.plugin = plugin;
   }
   getViewType() {
@@ -2358,9 +2361,14 @@ var KanbanView = class extends import_obsidian4.ItemView {
         this.render();
         this.scheduleSave();
       });
-      for (const item of lane.items) {
-        if (this.isItemVisible(item)) this.renderCardTree(listEl, item, lane, 0);
+      for (let i = 0; i < lane.items.length; i++) {
+        const item = lane.items[i];
+        if (this.isItemVisible(item)) {
+          this.renderInsertZone(listEl, lane, lane.items, i, 0);
+          this.renderCardTree(listEl, item, lane, 0);
+        }
       }
+      this.setupInsertZoneDetection(listEl);
       this.renderAddCardInput(laneEl, lane);
     }
   }
@@ -2370,10 +2378,126 @@ var KanbanView = class extends import_obsidian4.ItemView {
    */
   renderCardTree(container, item, lane, depth) {
     this.renderCard(container, item, lane, depth);
-    for (const child of item.children) {
+    for (let i = 0; i < item.children.length; i++) {
+      const child = item.children[i];
       if (this.isItemVisible(child)) {
+        this.renderInsertZone(container, lane, item.children, i, depth + 1);
         this.renderCardTree(container, child, lane, depth + 1);
       }
+    }
+  }
+  /** Create a zero-height marker for an insert position. Metadata is stored in insertZoneData. */
+  renderInsertZone(container, lane, targetList, insertIndex, depth) {
+    const zone = container.createDiv({ cls: "kanban-matsuo-insert-zone" });
+    if (depth > 0) {
+      zone.style.setProperty("margin-left", `calc(${depth} * var(--size-4-4))`);
+    }
+    this.insertZoneData.set(zone, { lane, targetList, insertIndex });
+  }
+  /**
+   * Detect cursor proximity to insert zones via mousemove on the card list.
+   * This avoids tiny hover targets and layout-shift flicker.
+   */
+  setupInsertZoneDetection(listEl) {
+    let hoverTimer = null;
+    let hoveredZone = null;
+    listEl.addEventListener("mousemove", (e) => {
+      var _a;
+      if (this.draggedItem) return;
+      if ((_a = this.activeInsertZone) == null ? void 0 : _a.hasClass("kanban-matsuo-insert-zone-editing")) return;
+      const zones = listEl.querySelectorAll(":scope > .kanban-matsuo-insert-zone");
+      const mouseY = e.clientY;
+      let nearest = null;
+      let nearestDist = 30;
+      for (const z of zones) {
+        const rect = z.getBoundingClientRect();
+        const dist = Math.abs(mouseY - rect.top);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = z;
+        }
+      }
+      if (nearest === hoveredZone) return;
+      if (hoverTimer) {
+        window.clearTimeout(hoverTimer);
+        hoverTimer = null;
+      }
+      if (this.activeInsertZone && !this.activeInsertZone.hasClass("kanban-matsuo-insert-zone-editing")) {
+        this.deactivateInsertZone(this.activeInsertZone);
+      }
+      hoveredZone = nearest;
+      if (nearest) {
+        const zone = nearest;
+        hoverTimer = window.setTimeout(() => {
+          const data = this.insertZoneData.get(zone);
+          if (data) {
+            this.activateInsertZone(zone, data.lane, data.targetList, data.insertIndex);
+          }
+        }, 400);
+      }
+    });
+    listEl.addEventListener("mouseleave", () => {
+      if (hoverTimer) {
+        window.clearTimeout(hoverTimer);
+        hoverTimer = null;
+      }
+      hoveredZone = null;
+      if (this.activeInsertZone && !this.activeInsertZone.hasClass("kanban-matsuo-insert-zone-editing")) {
+        this.deactivateInsertZone(this.activeInsertZone);
+      }
+    });
+  }
+  activateInsertZone(zone, lane, targetList, insertIndex) {
+    if (this.activeInsertZone && this.activeInsertZone !== zone) {
+      this.deactivateInsertZone(this.activeInsertZone);
+    }
+    this.activeInsertZone = zone;
+    zone.addClass("kanban-matsuo-insert-zone-active");
+    const popup = zone.createDiv({ cls: "kanban-matsuo-insert-popup" });
+    popup.setText(t("card.add"));
+    popup.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.showInsertZoneInput(zone, lane, targetList, insertIndex);
+    });
+  }
+  showInsertZoneInput(zone, _lane, targetList, insertIndex) {
+    zone.empty();
+    zone.addClass("kanban-matsuo-insert-zone-editing");
+    const editor = zone.createDiv({ cls: "kanban-matsuo-insert-editor" });
+    const textarea = editor.createEl("textarea", {
+      cls: "kanban-matsuo-insert-zone-textarea",
+      attr: { placeholder: t("card.add"), rows: "1" }
+    });
+    requestAnimationFrame(() => textarea.focus());
+    textarea.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) {
+        if (this.isNewlineKey(e)) return;
+        e.preventDefault();
+        const value = textarea.value.trim();
+        if (value) {
+          targetList.splice(insertIndex, 0, createItem(value));
+          this.render();
+          this.scheduleSave();
+        }
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        this.deactivateInsertZone(zone);
+      }
+    });
+    const onDocMouseDown = (e) => {
+      if (!zone.contains(e.target)) {
+        document.removeEventListener("mousedown", onDocMouseDown);
+        this.deactivateInsertZone(zone);
+      }
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+  }
+  deactivateInsertZone(zone) {
+    zone.removeClass("kanban-matsuo-insert-zone-active");
+    zone.removeClass("kanban-matsuo-insert-zone-editing");
+    zone.empty();
+    if (this.activeInsertZone === zone) {
+      this.activeInsertZone = null;
     }
   }
   renderCard(container, item, lane, depth) {

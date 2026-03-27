@@ -89,6 +89,10 @@ export class KanbanView extends ItemView {
 	private cardAutoScrollMouseX = 0;
 	private cardAutoScrollMouseY = 0;
 
+	// Insert zone state
+	private activeInsertZone: HTMLElement | null = null;
+	private insertZoneData = new WeakMap<HTMLElement, { lane: KanbanLane; targetList: KanbanItem[]; insertIndex: number }>();
+
 	constructor(leaf: WorkspaceLeaf, plugin: KanbanPlugin) {
 		super(leaf);
 		this.plugin = plugin;
@@ -642,9 +646,14 @@ export class KanbanView extends ItemView {
 				this.scheduleSave();
 			});
 
-			for (const item of lane.items) {
-				if (this.isItemVisible(item)) this.renderCardTree(listEl, item, lane, 0);
+			for (let i = 0; i < lane.items.length; i++) {
+				const item = lane.items[i];
+				if (this.isItemVisible(item)) {
+					this.renderInsertZone(listEl, lane, lane.items, i, 0);
+					this.renderCardTree(listEl, item, lane, 0);
+				}
 			}
+			this.setupInsertZoneDetection(listEl);
 			this.renderAddCardInput(laneEl, lane);
 		}
 	}
@@ -655,10 +664,156 @@ export class KanbanView extends ItemView {
 	 */
 	private renderCardTree(container: HTMLElement, item: KanbanItem, lane: KanbanLane, depth: number): void {
 		this.renderCard(container, item, lane, depth);
-		for (const child of item.children) {
+		for (let i = 0; i < item.children.length; i++) {
+			const child = item.children[i];
 			if (this.isItemVisible(child)) {
+				this.renderInsertZone(container, lane, item.children, i, depth + 1);
 				this.renderCardTree(container, child, lane, depth + 1);
 			}
+		}
+	}
+
+	/** Create a zero-height marker for an insert position. Metadata is stored in insertZoneData. */
+	private renderInsertZone(
+		container: HTMLElement,
+		lane: KanbanLane,
+		targetList: KanbanItem[],
+		insertIndex: number,
+		depth: number,
+	): void {
+		const zone = container.createDiv({ cls: 'kanban-matsuo-insert-zone' });
+		if (depth > 0) {
+			zone.style.setProperty('margin-left', `calc(${depth} * var(--size-4-4))`);
+		}
+		this.insertZoneData.set(zone, { lane, targetList, insertIndex });
+	}
+
+	/**
+	 * Detect cursor proximity to insert zones via mousemove on the card list.
+	 * This avoids tiny hover targets and layout-shift flicker.
+	 */
+	private setupInsertZoneDetection(listEl: HTMLElement): void {
+		let hoverTimer: number | null = null;
+		let hoveredZone: HTMLElement | null = null;
+
+		listEl.addEventListener('mousemove', (e) => {
+			if (this.draggedItem) return;
+			if (this.activeInsertZone?.hasClass('kanban-matsuo-insert-zone-editing')) return;
+
+			const zones = listEl.querySelectorAll(':scope > .kanban-matsuo-insert-zone') as NodeListOf<HTMLElement>;
+			const mouseY = e.clientY;
+			let nearest: HTMLElement | null = null;
+			let nearestDist = 30; // px threshold
+
+			for (const z of zones) {
+				const rect = z.getBoundingClientRect();
+				const dist = Math.abs(mouseY - rect.top);
+				if (dist < nearestDist) {
+					nearestDist = dist;
+					nearest = z;
+				}
+			}
+
+			if (nearest === hoveredZone) return;
+
+			if (hoverTimer) { window.clearTimeout(hoverTimer); hoverTimer = null; }
+
+			// Deactivate previous if not editing
+			if (this.activeInsertZone && !this.activeInsertZone.hasClass('kanban-matsuo-insert-zone-editing')) {
+				this.deactivateInsertZone(this.activeInsertZone);
+			}
+
+			hoveredZone = nearest;
+
+			if (nearest) {
+				const zone = nearest;
+				hoverTimer = window.setTimeout(() => {
+					const data = this.insertZoneData.get(zone);
+					if (data) {
+						this.activateInsertZone(zone, data.lane, data.targetList, data.insertIndex);
+					}
+				}, 400);
+			}
+		});
+
+		listEl.addEventListener('mouseleave', () => {
+			if (hoverTimer) { window.clearTimeout(hoverTimer); hoverTimer = null; }
+			hoveredZone = null;
+			if (this.activeInsertZone && !this.activeInsertZone.hasClass('kanban-matsuo-insert-zone-editing')) {
+				this.deactivateInsertZone(this.activeInsertZone);
+			}
+		});
+	}
+
+	private activateInsertZone(
+		zone: HTMLElement,
+		lane: KanbanLane,
+		targetList: KanbanItem[],
+		insertIndex: number,
+	): void {
+		if (this.activeInsertZone && this.activeInsertZone !== zone) {
+			this.deactivateInsertZone(this.activeInsertZone);
+		}
+
+		this.activeInsertZone = zone;
+		zone.addClass('kanban-matsuo-insert-zone-active');
+
+		const popup = zone.createDiv({ cls: 'kanban-matsuo-insert-popup' });
+		popup.setText(t('card.add'));
+		popup.addEventListener('click', (e) => {
+			e.stopPropagation();
+			this.showInsertZoneInput(zone, lane, targetList, insertIndex);
+		});
+	}
+
+	private showInsertZoneInput(
+		zone: HTMLElement,
+		_lane: KanbanLane,
+		targetList: KanbanItem[],
+		insertIndex: number,
+	): void {
+		zone.empty();
+		zone.addClass('kanban-matsuo-insert-zone-editing');
+
+		const editor = zone.createDiv({ cls: 'kanban-matsuo-insert-editor' });
+		const textarea = editor.createEl('textarea', {
+			cls: 'kanban-matsuo-insert-zone-textarea',
+			attr: { placeholder: t('card.add'), rows: '1' },
+		});
+		requestAnimationFrame(() => textarea.focus());
+
+		textarea.addEventListener('keydown', (e: KeyboardEvent) => {
+			if (e.key === 'Enter' && !e.isComposing) {
+				if (this.isNewlineKey(e)) return;
+				e.preventDefault();
+				const value = textarea.value.trim();
+				if (value) {
+					targetList.splice(insertIndex, 0, createItem(value));
+					this.render();
+					this.scheduleSave();
+				}
+			} else if (e.key === 'Escape') {
+				e.preventDefault();
+				this.deactivateInsertZone(zone);
+			}
+		});
+
+		// Close on outside click
+		const onDocMouseDown = (e: MouseEvent) => {
+			if (!zone.contains(e.target as Node)) {
+				document.removeEventListener('mousedown', onDocMouseDown);
+				this.deactivateInsertZone(zone);
+			}
+		};
+		document.addEventListener('mousedown', onDocMouseDown);
+	}
+
+	private deactivateInsertZone(zone: HTMLElement): void {
+		zone.removeClass('kanban-matsuo-insert-zone-active');
+		zone.removeClass('kanban-matsuo-insert-zone-editing');
+		zone.empty();
+		if (this.activeInsertZone === zone) {
+			this.activeInsertZone = null;
 		}
 	}
 

@@ -1254,6 +1254,68 @@ span.kanban-matsuo-subtask-done {
 	color: var(--text-on-accent);
 }
 
+/* Insert zone: zero-height marker, expands when active */
+.kanban-matsuo-insert-zone {
+	height: 0;
+	position: relative;
+	/* Absorb the extra flex gap this element introduces */
+	margin-bottom: calc(-1 * var(--size-4-3));
+	transition: height 150ms ease, margin 150ms ease;
+}
+
+/* When active, take up space so cards move apart */
+.kanban-matsuo-insert-zone.kanban-matsuo-insert-zone-active {
+	height: 34px;
+	margin-bottom: 0;
+}
+
+.kanban-matsuo-insert-zone.kanban-matsuo-insert-zone-editing {
+	height: 38px;
+	margin-bottom: 0;
+}
+
+/* Placeholder and editor fill the zone */
+.kanban-matsuo-insert-popup,
+.kanban-matsuo-insert-editor {
+	position: relative;
+	z-index: 10;
+}
+
+.kanban-matsuo-insert-popup {
+	padding: 6px 8px;
+	border: 2px dashed var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	text-align: center;
+	cursor: pointer;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.kanban-matsuo-insert-popup:hover {
+	border-color: var(--interactive-accent);
+	color: var(--text-normal);
+}
+
+/* Textarea editor */
+.kanban-matsuo-insert-zone-textarea {
+	width: 100%;
+	padding: var(--size-4-1) var(--size-4-2);
+	border: 2px solid var(--interactive-accent);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	font-family: inherit;
+	resize: none;
+	overflow: hidden;
+	box-sizing: border-box;
+}
+
+.kanban-matsuo-insert-zone-textarea:focus-visible {
+	outline: none;
+}
+
 /* Mobile responsive */
 @media (max-width: 600px) {
 	.kanban-matsuo-board {
