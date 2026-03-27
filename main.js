@@ -327,14 +327,14 @@ var en = {
   // Board
   "board.kanban-board": "Kanban board",
   "board.search-cards": "Search cards...",
-  "board.add-lane": "+ Add Lane",
+  "board.add-lane": "Add lane",
   "board.new-lane": "New lane",
   // Lane
   "lane.expand": "Expand lane",
   "lane.collapse": "Collapse lane",
   "lane.edit-title": "Edit lane title",
   "lane.options": "Lane options",
-  "lane.set-wip-limit": "Set WIP Limit",
+  "lane.set-wip-limit": "Set WIP limit",
   "lane.delete": "Delete lane",
   "lane.delete-confirm": "This lane has {{count}} card(s). Delete anyway?",
   // Card
@@ -372,10 +372,10 @@ var en = {
   "settings.language-desc": "UI language for the plugin.",
   "settings.language-auto": "Auto (follow Obsidian)",
   // Modal
-  "modal.wip-limit-title": "Set WIP Limit",
-  "modal.wip-limit-name": "WIP Limit",
+  "modal.wip-limit-title": "Set WIP limit",
+  "modal.wip-limit-name": "WIP limit",
   "modal.wip-limit-desc": "Maximum cards in this lane (0 = unlimited).",
-  "modal.wip-limit-label": "WIP Limit value",
+  "modal.wip-limit-label": "WIP limit value",
   "modal.save": "Save",
   "modal.cancel": "Cancel",
   "modal.delete-lane-title": "Delete lane",
@@ -430,10 +430,10 @@ var en = {
   "card-editor.card-title": "Title",
   "card-editor.card-title-placeholder": "Card title",
   "card-editor.tags": "Tags",
-  "card-editor.tags-desc": "Comma-separated (e.g. Bug, Urgent, Feature).",
-  "card-editor.tags-placeholder": "Bug, Urgent",
+  "card-editor.tags-desc": "Comma-separated tags.",
+  "card-editor.tags-placeholder": "bug, urgent",
   "card-editor.due-date": "Due date",
-  "card-editor.due-date-desc": "Date in YYYY-MM-DD format.",
+  "card-editor.due-date-desc": "Use YYYY-MM-DD format.",
   "card-editor.clear-date": "Clear",
   "card-editor.body": "Description",
   "card-editor.body-placeholder": "Card description (optional)",
@@ -458,8 +458,8 @@ var en = {
   "archive.count": "{{count}}",
   // Drag hints
   "drag.move-here": "Move here",
-  "drag.indent": "\u2192 Indent (Subtask)",
-  "drag.outdent": "\u2190 Outdent",
+  "drag.indent": "Indent (subtask)",
+  "drag.outdent": "Outdent",
   // Board UUID
   "board.uuid-click-to-copy": "Click to copy full UUID",
   // Rich card toggle
@@ -470,8 +470,8 @@ var en = {
   "card-editor.end-date": "End date",
   // WBS
   "wbs.title": "Gantt chart",
-  "wbs.toggle-show": "Show Gantt chart",
-  "wbs.toggle-hide": "Hide Gantt chart",
+  "wbs.toggle-show": "Show gantt chart",
+  "wbs.toggle-hide": "Hide gantt chart",
   "wbs.col-id": "#",
   "wbs.col-task": "Task",
   "wbs.col-lane": "Lane",
@@ -1882,7 +1882,7 @@ var KanbanView = class extends import_obsidian4.ItemView {
   getIcon() {
     return "layout-dashboard";
   }
-  // eslint-disable-next-line @typescript-eslint/require-await
+  // eslint-disable-next-line @typescript-eslint/require-await -- Base class ItemView requires async signature
   async onOpen() {
     this.contentEl.empty();
     this.contentEl.addClass("kanban-matsuo-container");
@@ -1898,7 +1898,7 @@ var KanbanView = class extends import_obsidian4.ItemView {
       })
     );
   }
-  // eslint-disable-next-line @typescript-eslint/require-await
+  // eslint-disable-next-line @typescript-eslint/require-await -- Base class ItemView requires async signature
   async onClose() {
     if (this.saveTimeout !== null) {
       window.clearTimeout(this.saveTimeout);
@@ -3275,7 +3275,7 @@ var KanbanSettingTab = class extends import_obsidian5.PluginSettingTab {
     );
     new import_obsidian5.Setting(containerEl).setName(t("settings.board-defaults")).setHeading();
     new import_obsidian5.Setting(containerEl).setName(t("settings.default-lanes")).setDesc(t("settings.default-lanes-desc")).addText(
-      (text) => text.setPlaceholder("To do, In progress, Done").setValue(this.plugin.settings.defaultLanes.join(", ")).onChange(async (value) => {
+      (text) => text.setPlaceholder("To do, in progress, done").setValue(this.plugin.settings.defaultLanes.join(", ")).onChange(async (value) => {
         this.plugin.settings.defaultLanes = value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
         await this.plugin.saveSettings();
       })

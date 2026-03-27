@@ -2,7 +2,7 @@ export const en = {
 	// Board
 	'board.kanban-board': 'Kanban board',
 	'board.search-cards': 'Search cards...',
-	'board.add-lane': '+ Add Lane',
+	'board.add-lane': 'Add lane',
 	'board.new-lane': 'New lane',
 
 	// Lane
@@ -10,7 +10,7 @@ export const en = {
 	'lane.collapse': 'Collapse lane',
 	'lane.edit-title': 'Edit lane title',
 	'lane.options': 'Lane options',
-	'lane.set-wip-limit': 'Set WIP Limit',
+	'lane.set-wip-limit': 'Set WIP limit',
 	'lane.delete': 'Delete lane',
 	'lane.delete-confirm': 'This lane has {{count}} card(s). Delete anyway?',
 
@@ -52,10 +52,10 @@ export const en = {
 	'settings.language-auto': 'Auto (follow Obsidian)',
 
 	// Modal
-	'modal.wip-limit-title': 'Set WIP Limit',
-	'modal.wip-limit-name': 'WIP Limit',
+	'modal.wip-limit-title': 'Set WIP limit',
+	'modal.wip-limit-name': 'WIP limit',
 	'modal.wip-limit-desc': 'Maximum cards in this lane (0 = unlimited).',
-	'modal.wip-limit-label': 'WIP Limit value',
+	'modal.wip-limit-label': 'WIP limit value',
 	'modal.save': 'Save',
 	'modal.cancel': 'Cancel',
 	'modal.delete-lane-title': 'Delete lane',
@@ -120,10 +120,10 @@ export const en = {
 	'card-editor.card-title': 'Title',
 	'card-editor.card-title-placeholder': 'Card title',
 	'card-editor.tags': 'Tags',
-	'card-editor.tags-desc': 'Comma-separated (e.g. Bug, Urgent, Feature).',
-	'card-editor.tags-placeholder': 'Bug, Urgent',
+	'card-editor.tags-desc': 'Comma-separated tags.',
+	'card-editor.tags-placeholder': 'bug, urgent',
 	'card-editor.due-date': 'Due date',
-	'card-editor.due-date-desc': 'Date in YYYY-MM-DD format.',
+	'card-editor.due-date-desc': 'Use YYYY-MM-DD format.',
 	'card-editor.clear-date': 'Clear',
 	'card-editor.body': 'Description',
 	'card-editor.body-placeholder': 'Card description (optional)',
@@ -152,8 +152,8 @@ export const en = {
 
 	// Drag hints
 	'drag.move-here': 'Move here',
-	'drag.indent': '→ Indent (Subtask)',
-	'drag.outdent': '← Outdent',
+	'drag.indent': 'Indent (subtask)',
+	'drag.outdent': 'Outdent',
 
 	// Board UUID
 	'board.uuid-click-to-copy': 'Click to copy full UUID',
@@ -168,8 +168,8 @@ export const en = {
 
 	// WBS
 	'wbs.title': 'Gantt chart',
-	'wbs.toggle-show': 'Show Gantt chart',
-	'wbs.toggle-hide': 'Hide Gantt chart',
+	'wbs.toggle-show': 'Show gantt chart',
+	'wbs.toggle-hide': 'Hide gantt chart',
 	'wbs.col-id': '#',
 	'wbs.col-task': 'Task',
 	'wbs.col-lane': 'Lane',

@@ -110,7 +110,7 @@ export class KanbanView extends ItemView {
 		return 'layout-dashboard';
 	}
 
-	// eslint-disable-next-line @typescript-eslint/require-await
+	// eslint-disable-next-line @typescript-eslint/require-await -- Base class ItemView requires async signature
 	async onOpen(): Promise<void> {
 		this.contentEl.empty();
 		this.contentEl.addClass('kanban-matsuo-container');
@@ -129,7 +129,7 @@ export class KanbanView extends ItemView {
 		);
 	}
 
-	// eslint-disable-next-line @typescript-eslint/require-await
+	// eslint-disable-next-line @typescript-eslint/require-await -- Base class ItemView requires async signature
 	async onClose(): Promise<void> {
 		if (this.saveTimeout !== null) {
 			window.clearTimeout(this.saveTimeout);

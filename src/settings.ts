@@ -60,8 +60,7 @@ export class KanbanSettingTab extends PluginSettingTab {
 			.setDesc(t('settings.default-lanes-desc'))
 			.addText((text) =>
 				text
-					// eslint-disable-next-line obsidianmd/ui/sentence-case
-					.setPlaceholder('To do, In progress, Done')
+					.setPlaceholder('To do, in progress, done')
 					.setValue(this.plugin.settings.defaultLanes.join(', '))
 					.onChange(async (value) => {
 						this.plugin.settings.defaultLanes = value
