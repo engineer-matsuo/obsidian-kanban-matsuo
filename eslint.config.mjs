@@ -37,6 +37,7 @@ export default defineConfig([
 			"prefer-const": "error",
 			"no-var": "error",
 			eqeqeq: ["error", "always", { null: "ignore" }],
+			"@typescript-eslint/require-await": "warn",
 		},
 	},
 ]);

@@ -110,24 +110,26 @@ export class KanbanView extends ItemView {
 		return 'layout-dashboard';
 	}
 
+	// eslint-disable-next-line @typescript-eslint/require-await
 	async onOpen(): Promise<void> {
 		this.contentEl.empty();
 		this.contentEl.addClass('kanban-matsuo-container');
 
 		// File change detection via registerEvent (auto-cleanup on view close)
 		this.registerEvent(
-			this.app.vault.on('modify', async (file) => {
+			this.app.vault.on('modify', (file) => {
 				if (this.ignoreModifyCount > 0) {
 					this.ignoreModifyCount--;
 					return;
 				}
 				if (file instanceof TFile && this.file && file.path === this.file.path) {
-					await this.loadFile(file);
+					void this.loadFile(file);
 				}
 			})
 		);
 	}
 
+	// eslint-disable-next-line @typescript-eslint/require-await
 	async onClose(): Promise<void> {
 		if (this.saveTimeout !== null) {
 			window.clearTimeout(this.saveTimeout);

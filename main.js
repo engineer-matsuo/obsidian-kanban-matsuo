@@ -327,14 +327,14 @@ var en = {
   // Board
   "board.kanban-board": "Kanban board",
   "board.search-cards": "Search cards...",
-  "board.add-lane": "+ Add lane",
+  "board.add-lane": "+ Add Lane",
   "board.new-lane": "New lane",
   // Lane
   "lane.expand": "Expand lane",
   "lane.collapse": "Collapse lane",
   "lane.edit-title": "Edit lane title",
   "lane.options": "Lane options",
-  "lane.set-wip-limit": "Set WIP limit",
+  "lane.set-wip-limit": "Set WIP Limit",
   "lane.delete": "Delete lane",
   "lane.delete-confirm": "This lane has {{count}} card(s). Delete anyway?",
   // Card
@@ -372,10 +372,10 @@ var en = {
   "settings.language-desc": "UI language for the plugin.",
   "settings.language-auto": "Auto (follow Obsidian)",
   // Modal
-  "modal.wip-limit-title": "Set WIP limit",
-  "modal.wip-limit-name": "WIP limit",
+  "modal.wip-limit-title": "Set WIP Limit",
+  "modal.wip-limit-name": "WIP Limit",
   "modal.wip-limit-desc": "Maximum cards in this lane (0 = unlimited).",
-  "modal.wip-limit-label": "WIP limit value",
+  "modal.wip-limit-label": "WIP Limit value",
   "modal.save": "Save",
   "modal.cancel": "Cancel",
   "modal.delete-lane-title": "Delete lane",
@@ -430,10 +430,10 @@ var en = {
   "card-editor.card-title": "Title",
   "card-editor.card-title-placeholder": "Card title",
   "card-editor.tags": "Tags",
-  "card-editor.tags-desc": "Comma-separated (e.g. bug, urgent, feature).",
-  "card-editor.tags-placeholder": "bug, urgent",
+  "card-editor.tags-desc": "Comma-separated (e.g. Bug, Urgent, Feature).",
+  "card-editor.tags-placeholder": "Bug, Urgent",
   "card-editor.due-date": "Due date",
-  "card-editor.due-date-desc": "YYYY-MM-DD format.",
+  "card-editor.due-date-desc": "Date in YYYY-MM-DD format.",
   "card-editor.clear-date": "Clear",
   "card-editor.body": "Description",
   "card-editor.body-placeholder": "Card description (optional)",
@@ -458,7 +458,7 @@ var en = {
   "archive.count": "{{count}}",
   // Drag hints
   "drag.move-here": "Move here",
-  "drag.indent": "\u2192 Indent (subtask)",
+  "drag.indent": "\u2192 Indent (Subtask)",
   "drag.outdent": "\u2190 Outdent",
   // Board UUID
   "board.uuid-click-to-copy": "Click to copy full UUID",
@@ -469,7 +469,7 @@ var en = {
   "card-editor.start-date": "Start date",
   "card-editor.end-date": "End date",
   // WBS
-  "wbs.title": "Gantt Chart",
+  "wbs.title": "Gantt chart",
   "wbs.toggle-show": "Show Gantt chart",
   "wbs.toggle-hide": "Hide Gantt chart",
   "wbs.col-id": "#",
@@ -1882,21 +1882,23 @@ var KanbanView = class extends import_obsidian4.ItemView {
   getIcon() {
     return "layout-dashboard";
   }
+  // eslint-disable-next-line @typescript-eslint/require-await
   async onOpen() {
     this.contentEl.empty();
     this.contentEl.addClass("kanban-matsuo-container");
     this.registerEvent(
-      this.app.vault.on("modify", async (file) => {
+      this.app.vault.on("modify", (file) => {
         if (this.ignoreModifyCount > 0) {
           this.ignoreModifyCount--;
           return;
         }
         if (file instanceof import_obsidian4.TFile && this.file && file.path === this.file.path) {
-          await this.loadFile(file);
+          void this.loadFile(file);
         }
       })
     );
   }
+  // eslint-disable-next-line @typescript-eslint/require-await
   async onClose() {
     if (this.saveTimeout !== null) {
       window.clearTimeout(this.saveTimeout);
